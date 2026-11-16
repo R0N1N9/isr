@@ -11,6 +11,8 @@ Two offline field tools for a Mavic 3 + DJI RC:
 
 Everything runs on a laptop with no internet connection. Nothing is ever written to the SD card.
 
+![Triage review page](docs/triage_report_example.png)
+
 ---
 
 ## Install (once, with internet)
