@@ -1,6 +1,6 @@
 # ISR tools for the DJI Mavic 3
 
-Two offline field tools for a Mavic 3 + DJI RC:
+Offline field and studio tools for a Mavic 3 + DJI RC:
 
 1. **`isr triage`**: scans every photo on an SD card or folder for possible people and person-related
    objects (clothing, packs, tarps, tents, vehicles). It ranks the hits, places each one on the map,
@@ -8,10 +8,15 @@ Two offline field tools for a Mavic 3 + DJI RC:
 2. **`isr plan`**: generates photogrammetry mapping grids and SAR search patterns (parallel track,
    expanding square, sector) as DJI waypoint `.kmz` files, plus KML/GPX/GeoJSON for CalTopo or
    Google Earth.
+3. **`isr studio`**: ranks every photo on a card for portfolio or print potential, groups bursts and
+   re-takes so each moment shows its best frame, and auto-edits the top picks. You choose favourites
+   in a gallery with a before/after slider.
+4. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
+   vibrance, horizon straightening, sharpening) written to new files with all metadata kept.
 
 Everything runs on a laptop with no internet connection. Nothing is ever written to the SD card.
 
-![Triage review page](docs/triage_report_example.png)
+![Studio gallery](docs/studio_gallery.jpg)
 
 ---
 
@@ -85,6 +90,8 @@ runs the detectors, and writes the following to the output folder (default `./tr
 | `detections.geojson` | CalTopo / SARTopo import, QGIS |
 | `detections.csv` | Incident log / spreadsheet |
 | `crops/`, `previews/` | Zoomed crops and annotated photos |
+
+![Triage review page](docs/triage_report_example.jpg)
 
 ### Reviewing
 
@@ -218,6 +225,110 @@ few metres. Add ground control points if you need survey-grade placement.
 
 ---
 
+## Studio: find your portfolio shots
+
+```bash
+isr studio E:\DCIM --open
+```
+
+On macOS or Linux, with a different number of suggestions:
+
+```bash
+isr studio /Volumes/DJI_SD/DCIM --top 40 --open
+```
+
+Studio reads every JPEG on the card and writes to `./studio_<timestamp>/` (or `-o FOLDER`):
+
+| Output | What it is |
+|---|---|
+| `gallery.html` | The gallery. Works offline and defaults to dark mode (the standard for judging photos). |
+| `edited/` | Full-resolution auto-edits of the top picks, with original EXIF, GPS, DJI metadata and colour profile kept |
+| `thumbs/`, `previews/` | Gallery images |
+| `studio.json` | All scores, for your own tooling |
+
+### How photos are ranked
+
+Taste is subjective, so Studio doesn't pretend to have it. Instead it measures what reliably
+separates keepers from rejects in aerial work. Each photo gets a 0–100 score from two halves:
+
+| Technical (sellable at all?) | Artistic (does it have what aerial art is known for?) |
+|---|---|
+| **Sharpness**: motion blur and missed focus, with sensor grain discounted so noise isn't mistaken for detail | **Colour**: vividness, with garish extremes penalised |
+| **Exposure**: mid-tone placement, clipped highlights, crushed shadows | **Composition**: a clear subject on a third or dead centre, or strong mirror symmetry |
+| **Contrast**: flat, hazy frames score low | **Simplicity**: large calm areas of water, sand, snow or fields (minimalism sells) |
+| **Noise** | **Pattern**: repeating structure such as crop rows, solar farms or waves |
+
+A photo's strongest artistic quality carries extra weight: a great abstract pattern shot doesn't
+also need to be colourful. A blurry or badly exposed frame can never outrank a clean one. Each
+photo gets plain-language tags (*Tack sharp, Vivid colour, Minimal, Symmetry, Pattern*) and
+warnings (*Soft / motion blur, Clipped highlights, Flat / hazy, Horizon tilted 2.5°*).
+
+**Similar frames** (bursts, brackets, hovering re-takes taken within 3 minutes) are grouped as one
+*moment*, and only the best frame competes for the top picks. The others appear under "Similar
+frames" in the viewer. Use `--similarity` to group more or less aggressively.
+
+In testing on real aerial photos, blurred, motion-blurred, over-exposed, under-exposed, hazy and
+noisy copies ranked below their originals in every case. Treat the ranking as a fast first cull;
+the final call is yours.
+
+### Using the gallery
+
+| Control | Action |
+|---|---|
+| **Suggested** / **Best of each** / **All photos** / **Picks** / **Rejected** | Filter what's shown |
+| **Sort** | Overall score, time taken, sharpness, colour or composition |
+| `P` (or the heart) | Pick a photo |
+| `X` | Reject a photo |
+| `←` `→` | Previous / next |
+| `Space` | Open the viewer |
+| `E` | In the viewer, flip between original and edited |
+| Drag on the photo | Before/after slider |
+
+Picks are remembered in that browser. **Export picks** downloads `picks.txt`; run the command shown
+there to make full-resolution edits of exactly your picks:
+
+```bash
+isr enhance --list picks.txt -o portfolio
+```
+
+![Studio viewer with before/after slider](docs/studio_viewer.jpg)
+
+---
+
+## Enhance: automatic touch-ups
+
+```bash
+isr enhance DJI_0412.JPG DJI_0418.JPG -o edited
+isr enhance E:\DCIM\DJI_001 -o edited --strength 0.4
+isr enhance --list picks.txt -o portfolio
+```
+
+The aim is the first five minutes of a professional edit, not a filter or a "look". Every step is
+measured from the photo itself, so a well-exposed frame is barely touched:
+
+1. **White balance**: partial correction of colour casts, measured only from genuinely grey surfaces
+   (roads, roofs, rock, cloud). Left alone when there are none, so green landscapes aren't turned magenta.
+2. **Dehaze and levels**: removes the haze veil common at altitude and sets the white point, without
+   clipping.
+3. **Tone**: gently lifts dark frames or pulls down bright ones.
+4. **Contrast**: an adaptive S-curve; flat frames get more, punchy frames almost none.
+5. **Clarity**: mid-tone local contrast, which brings out terrain texture.
+6. **Vibrance**: boosts muted colours more than already-saturated ones.
+7. **Straighten**: levels a tilted horizon on oblique shots, then crops to the largest clean
+   rectangle. Only when a horizon is detected with confidence, never on top-down shots.
+8. **Sharpen**: fine output sharpening sized to the image.
+
+`--strength` runs from 0 (nothing) to 1 (strong); the default is 0.6. `--no-straighten` turns
+rotation off. Output is a quality-95 JPEG with full-resolution colour (4:4:4) and the original
+EXIF, GPS, DJI XMP and colour profile, so edited files still geotag correctly.
+
+A 20 MP Mavic 3 frame takes about 5 seconds and around 600 MB of memory.
+
+These are JPEG edits. For the most demanding prints, shoot JPEG+DNG and finish your best frames
+from the DNG in Lightroom or Capture One. Studio's ranking is still the fast way to find them.
+
+---
+
 ## Other commands
 
 ```bash
@@ -234,8 +345,9 @@ pytest
 ```
 
 The tests generate synthetic DJI photos with real EXIF and XMP metadata and known targets
-(`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage
-and the `.kmz` structure.
+(`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
+the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
+and that edits keep metadata and never touch the originals.
 
 ## Safety and legal
 

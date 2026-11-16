@@ -129,7 +129,7 @@ def test_end_to_end(card, tmp_path):
     for f in ("results.json", "detections.csv", "detections.geojson", "detections.kml", "detections.gpx"):
         assert (out / f).stat().st_size > 0
     html = report.read_text()
-    assert "const DATA = " in html and "</script>" in html
+    assert "window.DATA = " in html and "</script>" in html
     gj = json.loads((out / "detections.geojson").read_text())
     assert any(f["geometry"]["type"] == "Point" for f in gj["features"])
     # nothing written to the card

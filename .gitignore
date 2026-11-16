@@ -7,3 +7,5 @@ triage_*/
 missions/
 *.pt
 .pytest_cache/
+studio_*/
+edited/

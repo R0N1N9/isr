@@ -1,4 +1,4 @@
-"""Command line entry point: ``isr triage``, ``isr plan``, ``isr info``."""
+"""Command line entry point: ``isr triage | plan | studio | enhance | info``."""
 
 from __future__ import annotations
 
@@ -168,6 +168,94 @@ def cmd_plan(a) -> int:
 
 
 # --------------------------------------------------------------------------
+# studio / enhance
+# --------------------------------------------------------------------------
+
+
+def cmd_studio(a) -> int:
+    from .studio.gallery import write_gallery
+    from .studio.pipeline import StudioConfig, run_studio
+
+    src = Path(a.source).expanduser()
+    if not src.exists():
+        print(f"error: {src} does not exist", file=sys.stderr)
+        return 2
+    out = Path(a.output).expanduser() if a.output else Path.cwd() / f"studio_{time.strftime('%Y%m%d_%H%M%S')}"
+    cfg = StudioConfig(top=a.top, enhance=not a.no_enhance, strength=a.strength, straighten=not a.no_straighten,
+                       dup_bits=a.similarity, workers=a.workers)
+    data = run_studio(src, out, cfg)
+    gallery = write_gallery(data, out)
+    s = data["summary"]
+    print()
+    print(f"Done in {s['seconds']} s: {s['photos']} photos, {s['groups']} distinct moments, "
+          f"top {s['top']} suggested, {s['edited']} auto-edited.")
+    if s["errors"]:
+        print(f"  {s['errors']} photo(s) could not be read (see studio.json)")
+    print(f"Gallery: {gallery}")
+    if s["edited"]:
+        print(f"Edits:   {out / 'edited'}")
+    if a.open:
+        webbrowser.open(gallery.resolve().as_uri())
+    return 0
+
+
+def _gather_inputs(a) -> list[Path]:
+    from .triage.pipeline import IMAGE_EXTS, find_photos
+
+    files: list[Path] = []
+    for x in a.inputs:
+        p = Path(x).expanduser()
+        if p.is_dir():
+            files += find_photos(p)
+        elif p.suffix.lower() in IMAGE_EXTS and p.exists():
+            files.append(p)
+        else:
+            print(f"  ! skipping {p} (not a JPEG or folder)", file=sys.stderr)
+    if a.list:
+        for line in Path(a.list).expanduser().read_text(encoding="utf-8").splitlines():
+            line = line.strip().strip('"')
+            if line and not line.startswith("#"):
+                files.append(Path(line))
+    seen, out = set(), []
+    for f in files:
+        if f.resolve() not in seen:
+            seen.add(f.resolve())
+            out.append(f)
+    return out
+
+
+def cmd_enhance(a) -> int:
+    from .studio.enhance import enhance_file
+
+    files = _gather_inputs(a)
+    if not files:
+        print("error: no photos given (pass files, folders, or --list picks.txt)", file=sys.stderr)
+        return 2
+    out = Path(a.output).expanduser()
+    out.mkdir(parents=True, exist_ok=True)
+    print(f"Enhancing {len(files)} photo(s) at strength {a.strength} -> {out}")
+    failed = 0
+    for n, f in enumerate(files, 1):
+        dst = out / f"{f.stem}{a.suffix}.jpg"
+        if dst.exists() and not a.overwrite:
+            dst = out / f"{f.stem}{a.suffix}_{n}.jpg"
+        t = time.time()
+        try:
+            rep = enhance_file(f, dst, a.strength, auto_straighten=not a.no_straighten, quality=a.quality)
+            print(f"  [{n}/{len(files)}] {f.name} -> {dst.name}  ({rep.summary()}; {time.time() - t:.1f} s)")
+            for note in rep.notes:
+                print(f"           {note}")
+        except FileNotFoundError:
+            failed += 1
+            print(f"  [{n}/{len(files)}] {f}: file not found (is the card plugged in?)", file=sys.stderr)
+        except Exception as e:
+            failed += 1
+            print(f"  [{n}/{len(files)}] {f.name}: failed ({e})", file=sys.stderr)
+    print(f"Done: {len(files) - failed} written to {out}" + (f", {failed} failed" if failed else ""))
+    return 1 if failed else 0
+
+
+# --------------------------------------------------------------------------
 # info
 # --------------------------------------------------------------------------
 
@@ -194,7 +282,7 @@ def cmd_info(a) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="isr", description="Drone ISR tools: photo triage and mission planning.")
+    ap = argparse.ArgumentParser(prog="isr", description="Drone tools: SAR photo triage, mission planning, and a portfolio studio.")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     t = sub.add_parser("triage", help="scan a folder / SD card for possible people and objects",
@@ -258,6 +346,32 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--camera", default="mavic3")
     c.add_argument("alts", nargs="*", type=float, help="altitudes to tabulate")
     c.set_defaults(func=cmd_plan)
+
+    st = sub.add_parser("studio", help="find your most portfolio-worthy photos and auto-edit the best",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    st.add_argument("source", help="folder or SD card to scan (searched recursively; never modified)")
+    st.add_argument("-o", "--output", help="output folder (default: ./studio_<timestamp>)")
+    st.add_argument("--top", type=int, default=30, help="how many best moments to suggest (and auto-edit)")
+    st.add_argument("--no-enhance", action="store_true", help="score and rank only; don't create edited copies")
+    st.add_argument("--strength", type=float, default=0.6, help="edit strength 0 (none) .. 1 (strong)")
+    st.add_argument("--no-straighten", action="store_true", help="never rotate to level the horizon")
+    st.add_argument("--similarity", type=int, default=30,
+                    help="how alike frames must be to group as one moment (0-256 differing bits; higher groups more)")
+    st.add_argument("--workers", type=int, default=0, help="parallel processes (0 = CPU count - 1)")
+    st.add_argument("--open", action="store_true", help="open the gallery in a browser when done")
+    st.set_defaults(func=cmd_studio)
+
+    en = sub.add_parser("enhance", help="light automatic touch-up of photos into new files",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    en.add_argument("inputs", nargs="*", help="photos and/or folders")
+    en.add_argument("--list", help="text file with one photo path per line (e.g. picks.txt from the Studio gallery)")
+    en.add_argument("-o", "--output", default="edited", help="output folder")
+    en.add_argument("--strength", type=float, default=0.6, help="edit strength 0 (none) .. 1 (strong)")
+    en.add_argument("--no-straighten", action="store_true", help="never rotate to level the horizon")
+    en.add_argument("--quality", type=int, default=95, help="JPEG quality of the edited files")
+    en.add_argument("--suffix", default="_edit", help="added to each output file name")
+    en.add_argument("--overwrite", action="store_true", help="replace existing files in the output folder")
+    en.set_defaults(func=cmd_enhance)
 
     i = sub.add_parser("info", help="show the metadata the tools read from a photo")
     i.add_argument("photos", nargs="+")
