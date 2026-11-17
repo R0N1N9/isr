@@ -56,6 +56,7 @@ class PhotoMeta:
     focal_mm: float | None = None
     taken_at: datetime | None = None
     camera_model: str | None = None
+    img_direction: float | None = None  # EXIF GPSImgDirection: where a phone camera was pointing, deg from north
     raw_xmp: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -159,6 +160,8 @@ def read_photo_meta(path: str | Path) -> PhotoMeta:
             if gps.get(5) in (1, b"\x01"):
                 alt = -alt
             meta.abs_alt_m = alt
+        if 17 in gps:
+            meta.img_direction = _rational(gps[17]) % 360
     except (TypeError, ValueError, ZeroDivisionError):
         pass
 

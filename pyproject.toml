@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "isr-tools"
 version = "0.1.0"
-description = "Drone ISR tools for DJI Mavic 3: SAR photo triage and mapping/search mission planning"
+description = "Drone ISR tools for DJI Mavic 3: SAR photo triage, mission planning, photo studio and site security assessment"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23", "pillow>=10.0", "scipy>=1.9"]

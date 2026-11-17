@@ -1,6 +1,6 @@
 # ISR tools for the DJI Mavic 3
 
-Offline field and studio tools for a Mavic 3 + DJI RC:
+Offline field and studio tools for a Mavic 3 + DJI RC (the site assessment also takes phone photos):
 
 1. **`isr triage`**: scans every photo on an SD card or folder for possible people and person-related
    objects (clothing, packs, tarps, tents, vehicles). It ranks the hits, places each one on the map,
@@ -13,6 +13,10 @@ Offline field and studio tools for a Mavic 3 + DJI RC:
    in a gallery with a before/after slider.
 4. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
    vibrance, horizon straightening, sharpening) written to new files with all metadata kept.
+
+5. **`isr site`**: a site security assessment. Walk or fly a property, drop the photos in, trace the
+   plan over the stitched aerial image, and get a report of sightlines, blind spots, camera
+   placement and access points.
 
 Everything runs on a laptop with no internet connection. Nothing is ever written to the SD card.
 
@@ -329,10 +333,98 @@ from the DNG in Lightroom or Capture One. Studio's ranking is still the fast way
 
 ---
 
+## Site security assessment
+
+For a property you own or are responsible for: where can someone approach unseen, which doors and
+gates are unwatched, and where would cameras do the most good.
+
+```bash
+isr site demo --edit            # a made-up property, to see how it works
+isr site survey E:\DCIM -o my_site --name "12 Mill Lane"
+```
+
+![Site editor](docs/site_editor.jpg)
+
+### 1. Capture
+
+| How | What to shoot | What it gives |
+|---|---|---|
+| **Fly** | One or more photos **straight down** (gimbal −90°) from 50–100 m, covering the whole property and the street outside. A single frame that takes it all in gives the cleanest map. | The base map you draw on, to scale and north-up |
+| **Walk** | Phone photos with location turned on: each door, gate, side passage, fence line, and the view in from the street. | Placed on the map with the direction the camera was pointing, and attached to whatever they show |
+| Both | Oblique drone shots are placed like phone photos. | Evidence in the report |
+
+Put all the JPEGs in one folder. Phone-only surveys work too: there is no aerial image, so you sketch
+the plan on a 10 m grid using the photo positions as a guide.
+
+### 2. Draw the plan
+
+`isr site survey` stitches the base map and opens the editor in your browser (a page served from
+your own machine at `127.0.0.1`; nothing is uploaded). Trace what you see:
+
+| Tool | Key | Draw |
+|---|---|---|
+| Boundary | `B` | The property line. Only ground inside it is assessed. |
+| Building | `H` | Each building; set its height. |
+| Wall, fence, hedge | `W` | Anything along a line. Pick solid wall, solid fence, see-through fence or hedge, and its height. |
+| Trees, shrubs | `G` | Planting someone could stand in or behind. |
+| Street, footpath | `S` | Where the public walks past. |
+| Door, window, gate | `A` | Every way in. Snaps to the nearest wall or fence. |
+| Camera | `C` | Existing cameras. Drag the handle to aim; set lens angle, range and height. |
+
+Double-click or `Enter` finishes a shape, `Esc` cancels, `Delete` removes the selected item,
+`Ctrl+Z` undoes. Drag corners to reshape; drag the hollow dots to add a corner. Every change is saved
+to `site.json` and the findings on the right update as you draw, so you can try things: lower a
+hedge, move a camera, add a recommended camera to the plan and see what is still unseen.
+
+Re-run `isr site survey` on the same project folder to add photos; the plan is kept.
+`isr site edit my_site` reopens it later.
+
+### 3. Report
+
+**Generate report** (or `isr site report my_site --open`) writes into the project folder:
+
+| File | Use |
+|---|---|
+| `report.html` | The assessment. No scripts, works offline, prints to PDF from the browser. |
+| `site.geojson`, `site.kml` | Plan, cameras, access points and blind spots for Google Earth / QGIS |
+| `assessment.csv` | One row per access point, blind spot, camera and perimeter opening |
+| `assessment.json`, `site.json` | Everything, for your own tooling |
+
+![Site report](docs/site_report.jpg)
+
+The report covers:
+
+* **Priority findings**: a ranked list, each with what to do about it.
+* **Sightlines**: the ground a passer-by on the street or an occupant at a window can see, and a
+  what-if table of how much each hedge, fence or planting hides.
+* **Blind spots**: every pocket nobody can see, with its size, what screens it, which doors it
+  reaches, and its coordinates.
+* **Camera placement**: recommended mounting points on building corners and walls with height, aim
+  and what each one covers, chosen to deal with the worst-exposed access points first.
+* **Access points**: for each door, window, gate and driveway: on camera or not, seen from the
+  street or not, how much hidden ground surrounds it, and the survey photos that show it.
+* **Perimeter**: how much of the boundary is closed, and any gap not marked as a gate.
+
+### How it works, and its limits
+
+The plan is turned into a 0.5 m grid of obstruction heights. A spot counts as seen when a straight
+line from the observer to a person standing there clears everything in between, taking height into
+account: a camera at 2.7 m sees over a 1.2 m garden wall, a passer-by does not see over a 1.8 m hedge.
+
+* **The tool measures the plan you draw; it does not recognise buildings or fences in the photos.**
+  Results are as good as the tracing and the heights you enter.
+* Positions come from consumer GPS and are good to a few metres. The ground is treated as flat.
+* Camera coverage is geometric: an unobstructed view within the stated range and angle. It says
+  nothing about image quality, night performance or whether anyone reviews the footage.
+* Lighting, locks, glazing, alarms and upper floors are not assessed. They need a walk-through.
+
+---
+
 ## Other commands
 
 ```bash
 isr info photo.JPG       # show what the tools read from a photo (GPS, altitude, gimbal, scale)
+isr site survey --help
 isr triage --help
 isr plan grid --help
 ```
@@ -347,7 +439,9 @@ pytest
 The tests generate synthetic DJI photos with real EXIF and XMP metadata and known targets
 (`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
 the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
-and that edits keep metadata and never touch the originals.
+and that edits keep metadata and never touch the originals. The site tests build the demo property
+(`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m, that
+hidden doors rank highest and the recommended cameras cover them, the report, and the editor server.
 
 ## Safety and legal
 

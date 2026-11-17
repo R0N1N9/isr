@@ -9,3 +9,4 @@ missions/
 .pytest_cache/
 studio_*/
 edited/
+site_*/
