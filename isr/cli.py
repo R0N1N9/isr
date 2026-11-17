@@ -284,8 +284,12 @@ def cmd_site(a) -> int:
         if not model["photos"]:
             print("  ! no photos found; the plan can still be sketched on a blank grid")
         elif not model["basemap"]:
-            print("  ! no straight-down drone photos, so there is no base map. Sketch the plan on the grid,\n"
-                  "    using the photo positions as a guide.")
+            print("  ! no drone photos looking down at the ground, so there is no base map. Sketch the plan on\n"
+                  "    the grid, using the photo positions as a guide.")
+        elif not model["basemap"]["straight_down"]:
+            print("  ! base map built from angled shots only. The ground is placed correctly, but roofs and\n"
+                  "    treetops lean away from the drone by roughly their own height: trace buildings where the\n"
+                  "    walls meet the ground. One photo taken straight down from above the site avoids this.")
         print(f"Project: {out}")
         if a.no_edit:
             print(f"Next: isr site edit {out}")
@@ -445,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     si = sub.add_parser("site", help="site security assessment: survey photos -> site plan -> report")
     ss = si.add_subparsers(dest="action", required=True)
-    sv = ss.add_parser("survey", help="read walk-round / drone photos, build the base map and open the editor",
+    sv = ss.add_parser("survey", help="read hand-flown drone and walk-round photos, build the base map and open the editor",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sv.add_argument("source", help="folder of photos (searched recursively)")
     sv.add_argument("-o", "--output", help="project folder (default ./site_<timestamp>); re-run to add photos")

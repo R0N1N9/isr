@@ -126,7 +126,8 @@ def result(project):
 def test_survey_classifies_and_places_photos(project):
     out, model = project
     kinds = [p["kind"] for p in model["photos"]]
-    assert kinds.count("nadir") == 1 and kinds.count("ground") == 6
+    assert kinds.count("nadir") == 1 and kinds.count("oblique") == 4 and kinds.count("ground") == 6
+    assert model["basemap"]["straight_down"] == 1 and model["basemap"]["angled"] == 4
     front = next(p for p in model["photos"] if "front" in p["name"])
     # walk_01 was taken at (-2, -20.5) on the lot, i.e. (-5, -16.5) from the drone, facing north
     assert (front["x"], front["y"]) == pytest.approx((-5.0, -16.5), abs=0.3)
@@ -136,19 +137,41 @@ def test_survey_classifies_and_places_photos(project):
     assert meta.img_direction == pytest.approx(180) and classify(meta) == "ground"
 
 
-def test_basemap_is_georeferenced(project):
-    """The blue car painted at a known spot on the lot must land on the same spot of the stitched map."""
-    out, model = project
-    bm = model["basemap"]
+def _car_on_map(out, bm):
     im = np.asarray(Image.open(out / bm["file"]).convert("RGB"), np.int32)
     x0, y0, x1, y1 = bm["bounds"]
     blue = (im[..., 2] > im[..., 0] + 40) & (im[..., 2] > im[..., 1] + 30)
     jj, ii = np.nonzero(blue)
     assert len(jj) > 200
     cx = x0 + ii.mean() / bm["px_per_m"]
-    cy = y1 - jj.mean() / bm["px_per_m"]
+    return cx, y1 - jj.mean() / bm["px_per_m"]
+
+
+def test_basemap_is_georeferenced(project):
+    """The blue car painted at a known spot on the lot must land on the same spot of the stitched map."""
+    out, model = project
     car = (14.15 - demo.DRONE[0], -14.35 - demo.DRONE[1])  # centre of the car, relative to the drone
-    assert (cx, cy) == pytest.approx(car, abs=0.6)
+    assert _car_on_map(out, model["basemap"]) == pytest.approx(car, abs=0.6)
+
+
+def test_basemap_from_hand_flown_angled_shots_only(tmp_path):
+    """No straight-down frame at all: four angled shots circling the house still give a usable, placed map."""
+    demo.write_obliques(tmp_path / "orbit")
+    out = tmp_path / "proj"
+    m = run_survey(tmp_path / "orbit", out, log=lambda *a: None)
+    bm = m["basemap"]
+    assert bm and bm["straight_down"] == 0 and bm["angled"] == 4
+    assert [p["kind"] for p in m["photos"]] == ["oblique"] * 4 and all(p["footprint"] for p in m["photos"])
+    # the project origin is the middle of the four drone positions: (0, 0.5) on the lot
+    assert _car_on_map(out, bm) == pytest.approx((14.15 - 0.0, -14.35 - 0.5), abs=1.0)
+    im = np.asarray(Image.open(out / bm["file"]).convert("RGB"), np.int32)
+    j, i = int((bm["bounds"][3] - 0) * bm["px_per_m"]), int((0 - bm["bounds"][0]) * bm["px_per_m"])
+    assert tuple(im[j, i]) != (24, 26, 31)  # the house in the middle is covered, not left blank
+    # a shot aimed near the horizon shows too little ground and is placed but not mapped
+    from isr.camera import PhotoMeta
+    from isr.site.survey import ground_quad
+    flat = PhotoMeta(Path("x"), 1320, 989, lat=51.0, lon=-1.0, rel_alt_m=30, gimbal_yaw=0, gimbal_pitch=-15)
+    assert ground_quad(flat, 51.0, -1.0) is None
 
 
 def test_hidden_doors_rank_highest(result):
@@ -237,13 +260,14 @@ def test_resurvey_keeps_the_plan(project, tmp_path):
     out, model = project
     n = len(model["features"])
     again = run_survey(out / "source_photos", out, log=lambda *a: None)
-    assert len(again["features"]) == n and again["origin"] == model["origin"] and len(again["photos"]) == 7
+    assert len(again["features"]) == n and again["origin"] == model["origin"] and len(again["photos"]) == 11
 
 
 def test_walk_only_survey_has_no_basemap(tmp_path):
     src = tmp_path / "walk"
     demo.write_photos(src)
-    (src / "DJI_0001.JPG").unlink()
+    for p in src.glob("DJI_*.JPG"):
+        p.unlink()
     m = run_survey(src, tmp_path / "proj", log=lambda *a: None)
     assert m["basemap"] is None and len(m["photos"]) == 6
     assert m["bounds"][2] - m["bounds"][0] >= 60

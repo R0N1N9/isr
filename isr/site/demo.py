@@ -1,7 +1,8 @@
 """A made-up property, for trying the tool and for the tests.
 
 ``build_demo`` paints a straight-down drone photo of a house, garage, hedges
-and street with real DJI metadata, adds a few phone-style ground photos with
+and street with real DJI metadata, four angled shots circling the house as a
+hand-flown survey would, and a few phone-style ground photos with
 GPS and compass headings, runs the normal survey on them, and then draws the
 site plan a user would draw by hand. The layout is in metres, east/north of
 the middle of the lot.
@@ -155,7 +156,7 @@ XMP = """<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>
    drone-dji:GpsLatitude="{lat:+.8f}" drone-dji:GpsLongitude="{lon:+.8f}"
    drone-dji:AbsoluteAltitude="{abs_alt:+.2f}" drone-dji:RelativeAltitude="{alt:+.2f}"
    drone-dji:GimbalRollDegree="+0.00" drone-dji:GimbalYawDegree="{yaw:+.2f}"
-   drone-dji:GimbalPitchDegree="-90.00" drone-dji:FlightYawDegree="{yaw:+.2f}"/>
+   drone-dji:GimbalPitchDegree="{pitch:+.2f}" drone-dji:FlightYawDegree="{yaw:+.2f}"/>
  </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end='w'?>"""
@@ -202,6 +203,34 @@ def render_ground(caption: str, heading: float, seed: int) -> Image.Image:
     return im
 
 
+ORBIT = [  # hand-flown angled shots circling the house: east, north, yaw (towards the house), pitch, height
+    (2, -44, 0, -48, 38), (46, 0, 270, -50, 40), (-2, 44, 180, -48, 38), (-46, 2, 90, -52, 42)]
+
+
+def write_obliques(folder: Path, aerial: Image.Image | None = None) -> list[Path]:
+    """Angled drone photos of the same scene, made by re-projecting the flat ground of the aerial render."""
+    from ..camera import PhotoMeta, pixel_to_ground
+    from ..geo import to_local
+    from .survey import _coeffs
+
+    folder.mkdir(parents=True, exist_ok=True)
+    aerial = aerial or render_aerial()
+    w, h = IMG_W // 2, IMG_H // 2
+    out = []
+    for i, (e, n, yaw, pitch, alt) in enumerate(ORBIT, 2):
+        lat, lon = offset_latlon(LAT0, LON0, n, e)
+        p = folder / f"DJI_{i:04d}.JPG"
+        meta = PhotoMeta(p, w, h, lat=lat, lon=lon, rel_alt_m=alt, gimbal_yaw=yaw, gimbal_pitch=pitch, focal_35mm=24)
+        corners = [(0, 0), (w, 0), (w, h), (0, h)]
+        src = [_to_px(*to_local(LAT0, LON0, *pixel_to_ground(meta, u, v))) for u, v in corners]
+        im = aerial.transform((w, h), Image.PERSPECTIVE, tuple(_coeffs(corners, src)), Image.BICUBIC,
+                              fillcolor=(96, 128, 66))
+        im.save(p, "JPEG", quality=88, exif=_exif(lat, lon, 24, f"2026:11:16 10:1{i}:00", model="L2D-20c"),
+                xmp=XMP.format(lat=lat, lon=lon, alt=alt, abs_alt=alt + 80, yaw=yaw, pitch=pitch).encode())
+        out.append(p)
+    return out
+
+
 def write_photos(folder: Path) -> list[Path]:
     folder.mkdir(parents=True, exist_ok=True)
     out = []
@@ -209,8 +238,9 @@ def write_photos(folder: Path) -> list[Path]:
     exif = _exif(lat, lon, 24, "2026:11:16 10:02:00", model="L2D-20c")
     p = folder / "DJI_0001.JPG"
     render_aerial().save(p, "JPEG", quality=90, exif=exif,
-                         xmp=XMP.format(lat=lat, lon=lon, alt=ALT, abs_alt=ALT + 80, yaw=YAW).encode())
+                         xmp=XMP.format(lat=lat, lon=lon, alt=ALT, abs_alt=ALT + 80, yaw=YAW, pitch=-90).encode())
     out.append(p)
+    out += write_obliques(folder)
     for i, (name, e, n, hdg, cap) in enumerate(GROUND):
         lat, lon = offset_latlon(LAT0, LON0, n, e)
         p = folder / name

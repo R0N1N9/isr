@@ -347,18 +347,27 @@ isr site survey E:\DCIM -o my_site --name "12 Mill Lane"
 
 ### 1. Capture
 
-| How | What to shoot | What it gives |
-|---|---|---|
-| **Fly** | One or more photos **straight down** (gimbal −90°) from 50–100 m, covering the whole property and the street outside. A single frame that takes it all in gives the cleanest map. | The base map you draw on, to scale and north-up |
-| **Walk** | Phone photos with location turned on: each door, gate, side passage, fence line, and the view in from the street. | Placed on the map with the direction the camera was pointing, and attached to whatever they show |
-| Both | Oblique drone shots are placed like phone photos. | Evidence in the report |
+No mapping mission or automated flight is needed. Fly by hand and take ordinary photos:
 
-Put all the JPEGs in one folder. Phone-only surveys work too: there is no aerial image, so you sketch
-the plan on a 10 m grid using the photo positions as a guide.
+| Shot | How | What it gives |
+|---|---|---|
+| **One from above** (best) | Climb to 50–100 m over the middle of the property, tilt the gimbal fully down (−90°), take one photo that includes the street outside. | A clean, to-scale, north-up base map to draw on |
+| **A lap around the building** | Circle at 30–50 m with the camera tilted 40–60° down, a photo every quarter turn or so. | Fills in the base map if there is no shot from above; shows walls, doors and what is under eaves and trees; attached as evidence in the report |
+| **Phone photos on foot** (optional) | Location on. Each door, gate, side passage and fence line, and the view in from the street. | Placed on the map with the direction the camera was pointing |
+
+Put all the JPEGs in one folder. The survey works out which is which from the gimbal angle and
+height recorded in each photo.
+
+With **only angled shots**, the map is still built: each patch of ground is taken from the photo that
+looks at it most steeply. Ground-level detail lands in the right place, but anything tall leans away
+from the drone by roughly its own height, so trace buildings where the walls meet the ground. Photos
+tilted less than 35° below the horizon show too little ground and are used as evidence only.
+With **phone photos only** there is no aerial image, so you sketch the plan on a 10 m grid using the
+photo positions as a guide.
 
 ### 2. Draw the plan
 
-`isr site survey` stitches the base map and opens the editor in your browser (a page served from
+`isr site survey` builds the base map and opens the editor in your browser (a page served from
 your own machine at `127.0.0.1`; nothing is uploaded). Trace what you see:
 
 | Tool | Key | Draw |
@@ -440,7 +449,8 @@ The tests generate synthetic DJI photos with real EXIF and XMP metadata and know
 (`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
 the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
 and that edits keep metadata and never touch the originals. The site tests build the demo property
-(`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m, that
+(`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
+angled shots alone), that
 hidden doors rank highest and the recommended cameras cover them, the report, and the editor server.
 
 ## Safety and legal

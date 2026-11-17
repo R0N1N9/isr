@@ -463,8 +463,10 @@ function renderSettings() {
     ${n("max_new_cameras", "How many", 1, 0, 12)}${n("camera_hfov", "Lens angle (°)", 5, 10, 360)}${n("camera_range_m", "Useful range (m)", 1, 3, 100)}${n("camera_height_m", "Mount height (m)", .1, .5, 30)}</div>
     <p class="help" style="margin-top:8px">Range is how far away a person is still usefully recorded: roughly 8–10 m to identify a face and 15–25 m to see what someone is doing, for a typical 4 MP wide-angle camera.</p>
     <div class="sec"><span class="label">Survey</span></div>
-    <p class="help">${model.photos.length} photos: ${c.nadir || 0} straight-down aerial, ${c.oblique || 0} oblique aerial, ${c.ground || 0} ground, ${c.unplaced || 0} without GPS.<br>
-    ${model.basemap ? "Base map stitched from the straight-down photos; expect it to be a few metres out in absolute position." : "No straight-down aerial photos, so there is no base map: sketch the plan on the grid (10 m squares) using the photo positions as a guide."}</p>`;
+    <p class="help">${model.photos.length} photos: ${c.nadir || 0} straight-down aerial, ${c.oblique || 0} angled aerial, ${c.ground || 0} ground, ${c.unplaced || 0} without GPS.<br>
+    ${!model.basemap ? "No drone photos looking down at the ground, so there is no base map: sketch the plan on the grid (10 m squares) using the photo positions as a guide."
+      : model.basemap.straight_down ? "Base map made from the straight-down drone photo" + (model.basemap.straight_down > 1 ? "s" : "") + "; expect it to be a few metres out in absolute position."
+      : "Base map made from angled drone shots only. Ground-level detail is in the right place, but roofs and treetops lean away from the drone by roughly their own height, so trace each building where its walls meet the ground. One photo taken straight down from above the site avoids this."}</p>`;
 }
 $("#p-settings").addEventListener("change", ev => { const t = ev.target;
   if (t.dataset.m) model[t.dataset.m] = t.value; else if (t.dataset.s) { const v = parseFloat(t.value); if (isFinite(v)) model.settings[t.dataset.s] = v; } else return; schedule(50); });

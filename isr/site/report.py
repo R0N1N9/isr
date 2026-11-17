@@ -475,9 +475,14 @@ def build_html(model: dict, an: Analysis) -> str:
 
     # 8 survey record
     b.append(H("Survey record"))
-    b.append(f'<p class="lead">{len(model["photos"])} photos: {counts.get("nadir", 0)} straight-down aerial (used for the base map), '
-             f'{counts.get("oblique", 0)} oblique aerial, {counts.get("ground", 0)} ground-level, '
-             f'{counts.get("unplaced", 0)} without a GPS position. Surveyed {h(sv.get("date", "–"))}.</p>')
+    bm = model.get("basemap")
+    base = ("no base map (no drone photo looks down at the ground)" if not bm else
+            f"base map from {bm.get('straight_down', 0)} straight-down photo(s)" if bm.get("straight_down") else
+            f"base map from {bm.get('angled', 0)} angled drone shots, so roofs and treetops are drawn displaced "
+            f"from their true position by roughly their height")
+    b.append(f'<p class="lead">{len(model["photos"])} photos: {counts.get("nadir", 0)} straight-down aerial, '
+             f'{counts.get("oblique", 0)} angled aerial, {counts.get("ground", 0)} ground-level, '
+             f'{counts.get("unplaced", 0)} without a GPS position; {base}. Surveyed {h(sv.get("date", "–"))}.</p>')
     unshot = [a["name"] for a in r["access"] if not a["photos"]]
     if unshot and model["photos"]:
         b.append(f'<p class="sub">No ground or oblique photo looks at: {h(", ".join(unshot))}.</p>')
