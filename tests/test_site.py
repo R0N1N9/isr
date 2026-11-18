@@ -242,7 +242,8 @@ def test_report_and_exports(project):
     report = write_report(model, out)
     html = report.read_text()
     assert "<script src" not in html and "http://" not in html.replace("http://www.w3.org", "")
-    for needle in ("Priority findings", "Side door", "Camera placement", "basemap.jpg", "report_assets/blind.png"):
+    for needle in ("Priority findings", "Side door", "Camera placement", "basemap.jpg", "report_assets/blind.png",
+                   "Prepared for", "Example client", "DEMO-001", "Open and unmarked", ">G1<"):
         assert needle in html
     gj = json.loads((out / "site.geojson").read_text())
     kinds = {f["properties"]["kind"] for f in gj["features"]}

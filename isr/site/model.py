@@ -87,7 +87,8 @@ def normalise(model: dict) -> dict:
     """Fill in defaults so the rest of the code can rely on every field. Edits ``model`` in place."""
     model.setdefault("version", VERSION)
     model.setdefault("name", "Site")
-    model.setdefault("assessor", "")
+    for k in ("assessor", "client", "address", "company", "reference"):  # shown on the report's front matter
+        model[k] = str(model.get(k) or "")[:200]
     model.setdefault("notes", "")
     model.setdefault("photos", [])
     model.setdefault("basemap", None)

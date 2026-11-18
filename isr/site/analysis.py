@@ -689,12 +689,14 @@ class Analysis:
                     gaps.append(self._gap(P, run[0], len(run), step, openings))
                 run = []
         gaps.sort(key=lambda g: (g["declared"] is not None, -g["length_m"]))
+        for i, g in enumerate(gaps):
+            g["code"] = f"G{i + 1}"
         barriers = []
         for f in sc.by_kind["barrier"]:
             t = M.BARRIER_TYPES[f["subtype"]]
             barriers.append({"name": f["name"], "type": t["label"], "height": f["height"],
                              "length_m": round(M.path_length(f["pts"]), 1), "see_through": not t["opaque"],
-                             "low": f["height"] < 1.2})
+                             "low": f["height"] < 1.2, "notes": f["notes"]})
         return {"length_m": round(total, 1), "closed_m": round(closed_len, 1),
                 "closed_pct": round(100 * closed_len / max(total, 1e-9)), "gaps": gaps, "barriers": barriers}
 
@@ -780,7 +782,7 @@ class Analysis:
                         "If barriers exist, draw them; otherwise anyone can walk in from any side.")
                 else:
                     add("medium" if g["length_m"] >= 3 else "low", "Perimeter",
-                        f"{g['length_m']:.0f} m gap in the perimeter on the {g['side']} side",
+                        f"{g['code']}: {g['length_m']:.0f} m gap in the perimeter on the {g['side']} side",
                         "This stretch of the boundary has no barrier and no gate or driveway marked on it.",
                         "Close it, or mark it as an access point so it is assessed as one.")
             for b in per["barriers"]:

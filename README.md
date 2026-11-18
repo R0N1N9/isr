@@ -394,12 +394,16 @@ Re-run `isr site survey` on the same project folder to add photos; the plan is k
 
 | File | Use |
 |---|---|
-| `report.html` | The assessment. No scripts, works offline, prints to PDF from the browser. |
+| `report.html` | The assessment, written to hand to a client. No scripts, works offline; **Print / save PDF** in the page gives a PDF. |
 | `site.geojson`, `site.kml` | Plan, cameras, access points and blind spots for Google Earth / QGIS |
 | `assessment.csv` | One row per access point, blind spot, camera and perimeter opening |
 | `assessment.json`, `site.json` | Everything, for your own tooling |
 
 ![Site report](docs/site_report.jpg)
+
+Fill in the client, site address, your company, name and a job reference under **Site** in the
+editor; they head the report. Notes typed against any item (a damaged fence panel, a gate that does
+not latch) are printed beside it.
 
 The report covers:
 
@@ -412,7 +416,9 @@ The report covers:
   and what each one covers, chosen to deal with the worst-exposed access points first.
 * **Access points**: for each door, window, gate and driveway: on camera or not, seen from the
   street or not, how much hidden ground surrounds it, and the survey photos that show it.
-* **Perimeter**: how much of the boundary is closed, and any gap not marked as a gate.
+* **Perimeter**: a map of the boundary with every opening marked, how much of it is closed, each gap
+  not marked as a gate with its length and position, and a schedule of every wall, fence and hedge
+  with type, height and length.
 
 ### How it works, and its limits
 

@@ -457,7 +457,12 @@ $("#p-props").addEventListener("click", ev => { if (ev.target.id === "del" && se
 function renderSettings() {
   const s = model.settings, n = (k, lbl, step, min, max) => `<label>${lbl}</label><input type="number" data-s="${k}" value="${s[k]}" step="${step}" min="${min}" max="${max}">`;
   const sv = model.survey || {}, c = sv.counts || {};
-  $("#p-settings").innerHTML = `<div class="form"><label>Assessor</label><input data-m="assessor" value="${esc(model.assessor || "")}">
+  $("#p-settings").innerHTML = `<div class="sec" style="margin-top:0"><span class="label">Report front page</span></div><div class="form">
+    <label>Client</label><input data-m="client" placeholder="Who the report is for" value="${esc(model.client || "")}">
+    <label>Site address</label><input data-m="address" value="${esc(model.address || "")}">
+    <label>Prepared by</label><input data-m="company" placeholder="Your company" value="${esc(model.company || "")}">
+    <label>Assessor</label><input data-m="assessor" placeholder="Your name" value="${esc(model.assessor || "")}">
+    <label>Reference</label><input data-m="reference" placeholder="Job or report number" value="${esc(model.reference || "")}">
     <label class="wide">Notes (shown in the report)</label><textarea data-m="notes">${esc(model.notes || "")}</textarea></div>
     <div class="sec"><span class="label">Cameras to recommend</span></div><div class="form">
     ${n("max_new_cameras", "How many", 1, 0, 12)}${n("camera_hfov", "Lens angle (°)", 5, 10, 360)}${n("camera_range_m", "Useful range (m)", 1, 3, 100)}${n("camera_height_m", "Mount height (m)", .1, .5, 30)}</div>

@@ -29,6 +29,12 @@ h2 .n{font:600 12px var(--mono);color:var(--muted)}
 h3{font-size:14px;margin:18px 0 6px}
 p.lead{color:var(--ink-2);max-width:78ch;margin:6px 0 14px}
 .sub{color:var(--muted);font-size:13px}
+.cover{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px;box-shadow:var(--shadow)}
+.cover .label{margin-bottom:8px;color:var(--accent)}
+.front{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px 24px;margin:18px 0 0;padding-top:16px;border-top:1px solid var(--line)}
+.front dt{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.front dd{margin:2px 0 0;font-weight:550}
+.foot{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;max-width:90ch}
 .summary{font-size:15.5px;line-height:1.6;max-width:80ch;margin:16px 0 18px;color:var(--ink)}
 .stats{margin:14px 0}
 .stat .v small{font-size:13px;color:var(--muted);font-weight:500;letter-spacing:0}
@@ -98,7 +104,8 @@ class MapSVG:
         self.b = (sc.xmin, sc.ymin, sc.xmax, sc.ymax)
         self.u = max(sc.xmax - sc.xmin, sc.ymax - sc.ymin) / 100.0  # 1% of the map: the unit for strokes and text
 
-    def render(self, layers=(), cameras="current", blind=True, photos=False, access=True, title="Site plan") -> str:
+    def render(self, layers=(), cameras="current", blind=True, photos=False, access=True, title="Site plan",
+               gaps=()) -> str:
         xmin, ymin, xmax, ymax = self.b
         u = self.u
         o = [f'<svg viewBox="{xmin:.2f} {-ymax:.2f} {xmax - xmin:.2f} {ymax - ymin:.2f}" role="img" '
@@ -121,7 +128,7 @@ class MapSVG:
                 if p.get("x") is not None and p["kind"] != "nadir":
                     o.append(self._photo(p))
         for c in self.r["cameras"]:
-            if cameras == "current" and c["status"] != "existing":
+            if cameras == "none" or cameras == "current" and c["status"] != "existing":
                 continue
             col = "#3b82f6"
             o.append(self._camera(c["x"], c["y"], c["bearing"], c["hfov"], c["range"], col, c["code"],
@@ -130,6 +137,13 @@ class MapSVG:
             for p in self.r["recommended"]:
                 o.append(self._camera(p["x"], p["y"], p["bearing"], p["hfov"], p["range"], "#10a35a", p["id"],
                                       dashed=True))
+        for g in gaps:  # openings in the perimeter: red where unmarked, amber where a gate or driveway is marked
+            col = "#e08a00" if g["declared"] else "#e5484d"
+            o.append(f'<polyline points="{self._pts(g["line"])}" fill="none" stroke="#fff" stroke-width="{u * 1.5:.2f}" '
+                     f'stroke-linecap="round"/><polyline points="{self._pts(g["line"])}" fill="none" stroke="{col}" '
+                     f'stroke-width="{u * .95:.2f}" stroke-linecap="round"/>')
+            if not g["declared"]:
+                o.append(self._label(g["x"], g["y"], g["code"], col, shape="rect"))
         if blind:
             for b in (self.r["blind_spots"] if blind is True else blind):
                 o.append(self._label(b["x"], b["y"], b["id"], "#e5484d", shape="rect"))
@@ -295,9 +309,17 @@ def build_html(model: dict, an: Analysis) -> str:
              f'<div class="crumb">{h(model["name"])}</div><div class="spacer"></div>'
              f'<button class="btn" onclick="print()">{icon("download")}<span class="lbl">Print / save PDF</span></button>'
              f'{theme_button()}</header><div class="wrap">')
-    who = f' · Assessor: {h(model["assessor"])}' if model.get("assessor") else ""
-    b.append(f'<h1>{h(model["name"])}</h1><div class="sub">Site security assessment · {time.strftime("%d %B %Y")}{who} · '
-             f'<span class="mono">{o["lat"]:.6f}, {o["lon"]:.6f}</span></div>')
+    brand = h(model["company"]) if model.get("company") else "Site security assessment"
+    b.append(f'<div class="cover"><div class="label">{brand}</div><h1>{h(model["name"])}</h1>'
+             f'<div class="sub">Site security assessment: sightlines, blind spots, camera placement, access points '
+             f'and perimeter</div><dl class="front">')
+    for k, v in (("Prepared for", model.get("client")), ("Site", model.get("address")),
+                 ("Prepared by", " · ".join(x for x in (model.get("assessor"), model.get("company")) if x)),
+                 ("Reference", model.get("reference")), ("Report date", time.strftime("%d %B %Y")),
+                 ("Survey date", (sv.get("date") or "")[:10]), ("Location", f'{o["lat"]:.6f}, {o["lon"]:.6f}')):
+        if v:
+            b.append(f"<div><dt>{k}</dt><dd>{h(v)}</dd></div>")
+    b.append("</dl></div>")
     if not drawn:
         b.append('<p class="summary">Nothing has been drawn on the site plan yet, so there is nothing to assess. '
                  'Open the project with <span class="mono">isr site edit</span>, trace the boundary, buildings, '
@@ -454,21 +476,32 @@ def build_html(model: dict, an: Analysis) -> str:
     if per:
         b.append(f'<p class="lead">The boundary is {per["length_m"]:.0f} m long; {per["closed_pct"]}% of it has a wall, '
                  f'fence, hedge or building on it.</p>')
+        open_m = sum(g["length_m"] for g in per["gaps"] if not g["declared"])
+        b.append(f'<div class="mapcard">{mp.render(cameras="none", blind=False, gaps=per["gaps"], title="Perimeter")}'
+                 '<div class="legend">' + _sw("#e5484d", "Unmarked gap", True) +
+                 _sw("#e08a00", "Marked opening (gate, driveway)", True) + _sw("#4ade80", "Hedge", True) +
+                 _sw("#d6a56b", "Fence (dashed: see-through)", True) + _sw("#e5e7eb", "Wall", True) + "</div></div>")
+        b.append('<div class="stats">' + stat(f'{per["length_m"]:.0f} m', "Boundary length") +
+                 stat(f'{per["closed_pct"]}%', "Closed by a barrier or building") +
+                 stat(f'{open_m:.0f} m', "Open and unmarked", "bad" if open_m else "") +
+                 stat(str(sum(1 for g in per["gaps"] if g["declared"])), "Marked openings") + "</div>")
         if per["gaps"]:
-            b.append('<div class="tablewrap"><table><tr><th>Opening</th><th class="num">Length</th><th>Side</th>'
-                     '<th>Status</th><th>Position</th></tr>')
+            b.append('<h3>Openings</h3><div class="tablewrap"><table><tr><th></th><th>Opening</th>'
+                     '<th class="num">Length</th><th>Side</th><th>Status</th><th>Position</th></tr>')
             for g in per["gaps"]:
-                b.append(f'<tr><td>{h(g["declared"] or "Unmarked gap")}</td><td class="num">{g["length_m"]:.1f} m</td>'
+                code = "" if g["declared"] else _code(g["code"], "#e5484d")
+                b.append(f'<tr><td>{code}</td><td>{h(g["declared"] or "Unmarked gap")}</td><td class="num">{g["length_m"]:.1f} m</td>'
                          f'<td>{g["side"].capitalize()}</td><td>{"Marked access point" if g["declared"] else _yn(False, no="Open, not marked as an access point")}</td>'
                          f'<td class="mono">{g["lat"]:.6f}, {g["lon"]:.6f}</td></tr>')
             b.append("</table></div>")
         if per["barriers"]:
-            b.append('<div class="tablewrap"><table><tr><th>Barrier</th><th>Type</th><th class="num">Height</th>'
-                     '<th class="num">Length</th><th>Blocks view</th></tr>')
+            b.append('<h3>Barriers</h3><div class="tablewrap"><table><tr><th>Barrier</th><th>Type</th><th class="num">Height</th>'
+                     '<th class="num">Length</th><th>Blocks view</th><th>Notes</th></tr>')
             for k in per["barriers"]:
                 low = ' <span class="no">(low)</span>' if k["low"] else ""
                 b.append(f'<tr><td>{h(k["name"])}</td><td>{h(k["type"])}</td><td class="num">{k["height"]:.1f} m{low}</td>'
-                         f'<td class="num">{k["length_m"]:.0f} m</td><td>{"No" if k["see_through"] or k["height"] < 1.2 else "Yes"}</td></tr>')
+                         f'<td class="num">{k["length_m"]:.0f} m</td><td>{"No" if k["see_through"] or k["height"] < 1.2 else "Yes"}</td>'
+                         f'<td>{h(k.get("notes") or "")}</td></tr>')
             b.append("</table></div>")
     else:
         b.append('<p class="empty-note">No boundary drawn, so the perimeter is not assessed.</p>')
@@ -508,7 +541,12 @@ is used at different times. A daytime photo survey cannot show these; they need 
 <li><b>Priorities.</b> An access point scores for having no camera (2 for doors, gates and garages, 1 for windows),
 for being invisible from both the street and windows (2), and for unobserved ground within 8 m (1 above 25%,
 2 above 50%). 5 or more is high, 3–4 medium.</li>
-</ul></div>""")
+</ul>""")
+    by = " · ".join(x for x in (model.get("assessor"), model.get("company")) if x)
+    b.append(f'<p class="foot">{"Prepared by " + h(by) + (" for " + h(model["client"]) if model.get("client") else "") + ". " if by else ""}'
+             'This report describes what could be observed and measured from a photographic survey on the date shown. '
+             'It identifies where the site is exposed and how that could be reduced; it is not a guarantee against '
+             'intrusion, and the recommendations should be confirmed on site before work is ordered.</p></div>')
     return page(f"Site assessment: {h(model['name'])}", "".join(b), CSS, "", None, default_theme="light")
 
 
