@@ -277,7 +277,7 @@ def _body() -> str:
     )
     return f"""
 <header class="topbar">
-  <div class="brand">{LOGO}<div class="brand-name">ISR <span>/ Studio</span></div></div>
+  <div class="brand">{LOGO}<div class="brand-name">ISR Studio <span>/ Art</span></div></div>
   <div class="crumb mono" id="src"></div>
   <div class="spacer"></div>
   <button class="btn primary" id="expBtn">{icon("download")}<span class="lbl">Export picks</span>
@@ -329,5 +329,5 @@ def write_gallery(data: dict, out_dir: Path) -> Path:
     payload["icons"] = {k: icon(k, 14) for k in ("heart", "x", "layers", "sparkles", "check")}
     payload["icons"]["image"] = icon("image", 36)
     path = out_dir / "gallery.html"
-    path.write_text(page("Studio", _body(), CSS, JS, payload, default_theme="dark"), encoding="utf-8")
+    path.write_text(page("Art gallery", _body(), CSS, JS, payload, default_theme="dark"), encoding="utf-8")
     return path

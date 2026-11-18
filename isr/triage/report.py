@@ -283,7 +283,7 @@ def _body() -> str:
     )
     return f"""
 <header class="topbar">
-  <div class="brand">{LOGO}<div class="brand-name">ISR <span>/ Search triage</span></div></div>
+  <div class="brand">{LOGO}<div class="brand-name">ISR Studio <span>/ SAR</span></div></div>
   <div class="crumb mono" id="src"></div>
   <div class="spacer"></div>
   <button class="btn" id="expCsv" title="Export confirmed as CSV">{icon("download")}<span class="lbl">CSV</span></button>
@@ -337,5 +337,5 @@ def write_report(data: dict, out_dir: Path) -> Path:
     payload["icons"] = {k: icon(k, 14) for k in ("check", "x", "copy", "target")}
     payload["icons"]["target"] = icon("target", 36)
     path = out_dir / "report.html"
-    path.write_text(page("Search Triage", _body(), CSS, JS, payload), encoding="utf-8")
+    path.write_text(page("SAR review", _body(), CSS, JS, payload), encoding="utf-8")
     return path

@@ -32,14 +32,8 @@ from pathlib import Path
 
 VERSION = 1
 
-# Branding of the editor and the report. "Prepared by" on a report defaults to BRAND and can be changed per project.
-BRAND = "Ronin Sec"
-APP = "Survey"
-BRAND_LOGO = ('<svg class="logo" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">'
-              '<rect width="32" height="32" rx="9" fill="#0d1117"/>'
-              '<path d="M11 24V8h6.2a4.6 4.6 0 0 1 1.5 8.95L22.5 24M11 17h6.2" fill="none" stroke="#fff" '
-              'stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'
-              '<circle cx="23.5" cy="9" r="2.2" fill="#e5484d"/></svg>')
+BRAND = "Ronin Sec"  # default "Prepared by" on a report; change it per project under Site in the editor
+APP = "Survey"  # this section of ISR Studio
 
 DEFAULT_SETTINGS = {
     "cell_m": 0.5,  # analysis grid

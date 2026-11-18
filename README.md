@@ -1,26 +1,56 @@
-# ISR tools for the DJI Mavic 3
+# ISR Studio
 
-Offline field and studio tools for a Mavic 3 + DJI RC (the site assessment also takes phone photos):
+Offline tools that turn a card of drone (UAV) photos into something you can act on. One app, three
+sections:
 
-1. **`isr triage`**: scans every photo on an SD card or folder for possible people and person-related
-   objects (clothing, packs, tarps, tents, vehicles). It ranks the hits, places each one on the map,
-   and produces a review page plus GPX/KML/CSV for ground teams.
-2. **`isr plan`**: generates photogrammetry mapping grids and SAR search patterns (parallel track,
-   expanding square, sector) as DJI waypoint `.kmz` files, plus KML/GPX/GeoJSON for CalTopo or
-   Google Earth.
-3. **`isr studio`**: ranks every photo on a card for portfolio or print potential, groups bursts and
-   re-takes so each moment shows its best frame, and auto-edits the top picks. You choose favourites
-   in a gallery with a before/after slider.
-4. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
-   vibrance, horizon straightening, sharpening) written to new files with all metadata kept.
+| Section | For | You get |
+|---|---|---|
+| **SAR** | Search and rescue: finding a missing person or a target of interest | Every photo scanned, hits ranked and placed on the map, a search report with coordinates, GPX/KML/CSV for ground teams |
+| **Survey** | Assessing the security posture of a site | Sightlines, blind spots, camera placement, access points and perimeter, as a report for the client |
+| **Art** | Stock libraries, prints and portfolios | Photos ranked for technical and artistic quality, near-duplicates grouped, the best frames auto-edited |
 
-5. **`survey`** (Ronin Sec Survey): a site security assessment. Walk or fly a property, drop the photos in, trace the
-   plan over the stitched aerial image, and get a report of sightlines, blind spots, camera
-   placement and access points.
+Everything runs on a laptop with no internet connection. Nothing is uploaded, and nothing is ever
+written to the SD card.
 
-Everything runs on a laptop with no internet connection. Nothing is ever written to the SD card.
+![ISR Studio](docs/isr_studio.jpg)
 
-![Studio gallery](docs/studio_gallery.jpg)
+## Using the app
+
+```bash
+isr-studio
+```
+
+That opens ISR Studio in your browser (it is a page served from your own machine at `127.0.0.1`).
+Pick a section, press **New**, choose the folder of photos (the card's `DCIM` folder, or any folder
+of JPEGs), and wait while it works. Each job then opens in its own page:
+
+* **SAR** opens the review page. Confirm or dismiss candidates, then **Search report** writes a
+  printable report of the confirmed finds.
+* **Survey** opens the plan editor. Trace the site, then **Generate report**.
+* **Art** opens the gallery. Pick favourites, compare originals with the edits.
+
+Jobs are kept in `~/ISR-Studio/<section>/<job>/` and listed on the home screen, so you can reopen
+or delete them. Each job folder holds its report and exports and can be copied to a USB stick.
+**Quit** on the home screen stops the app.
+
+On Linux, add it to the applications menu so it starts with a click instead of a terminal:
+
+```bash
+isr-studio --install-launcher
+```
+
+Every section also works from the command line, which is what the rest of this document describes:
+`isr triage` (SAR), `survey` (Survey), `isr art` and `isr enhance` (Art), plus `isr plan` for
+mapping grids and SAR search patterns.
+
+### Which aircraft
+
+Any drone that writes JPEGs with GPS works for **Art**, and its photos can be placed on a map.
+**SAR** geolocation and the **Survey** base map also need the camera angle and the height above
+take-off, which the tools read from DJI-format photo metadata (the `drone-dji` XMP block). Photos
+without it are still scanned: SAR hits are then given at the aircraft's position rather than
+projected onto the ground, and Survey treats the photos as ground-level shots. Phone photos work in
+Survey as walk-round evidence. The mission planner writes DJI waypoint files.
 
 ---
 
@@ -29,7 +59,7 @@ Everything runs on a laptop with no internet connection. Nothing is ever written
 Needs Python 3.10+.
 
 ```bash
-git clone <this repo> isr && cd isr
+git clone https://github.com/r0n1n9/isr.git && cd isr
 python -m venv .venv
 ```
 
@@ -221,7 +251,7 @@ drone ID, which DJI Fly on a consumer Mavic 3 may reject.
 
 ### Processing mapping photos
 
-* **WebODM / OpenDroneMap** (free) handles Mavic 3 photos well.
+* **WebODM / OpenDroneMap** (free) handles these photos well.
 * **Agisoft Metashape** and **Pix4D** are the paid alternatives.
 
 Without RTK, measurements within a map will be good, but its absolute position is only accurate to a
@@ -229,19 +259,19 @@ few metres. Add ground control points if you need survey-grade placement.
 
 ---
 
-## Studio: find your portfolio shots
+## Art: find your portfolio and stock shots
 
 ```bash
-isr studio E:\DCIM --open
+isr art E:\DCIM --open
 ```
 
 On macOS or Linux, with a different number of suggestions:
 
 ```bash
-isr studio /Volumes/DJI_SD/DCIM --top 40 --open
+isr art /Volumes/DJI_SD/DCIM --top 40 --open
 ```
 
-Studio reads every JPEG on the card and writes to `./studio_<timestamp>/` (or `-o FOLDER`):
+Art reads every JPEG on the card and writes to `./studio_<timestamp>/` (or `-o FOLDER`):
 
 | Output | What it is |
 |---|---|
@@ -252,7 +282,7 @@ Studio reads every JPEG on the card and writes to `./studio_<timestamp>/` (or `-
 
 ### How photos are ranked
 
-Taste is subjective, so Studio doesn't pretend to have it. Instead it measures what reliably
+Taste is subjective, so Art doesn't pretend to have it. Instead it measures what reliably
 separates keepers from rejects in aerial work. Each photo gets a 0–100 score from two halves:
 
 | Technical (sellable at all?) | Artistic (does it have what aerial art is known for?) |
@@ -295,7 +325,7 @@ there to make full-resolution edits of exactly your picks:
 isr enhance --list picks.txt -o portfolio
 ```
 
-![Studio viewer with before/after slider](docs/studio_viewer.jpg)
+![Art viewer with before/after slider](docs/studio_viewer.jpg)
 
 ---
 
@@ -326,16 +356,16 @@ measured from the photo itself, so a well-exposed frame is barely touched:
 rotation off. Output is a quality-95 JPEG with full-resolution colour (4:4:4) and the original
 EXIF, GPS, DJI XMP and colour profile, so edited files still geotag correctly.
 
-A 20 MP Mavic 3 frame takes about 5 seconds and around 600 MB of memory.
+A 20 MP frame takes about 5 seconds and around 600 MB of memory.
 
 These are JPEG edits. For the most demanding prints, shoot JPEG+DNG and finish your best frames
-from the DNG in Lightroom or Capture One. Studio's ranking is still the fast way to find them.
+from the DNG in Lightroom or Capture One. Art's ranking is still the fast way to find them.
 
 ---
 
 ## Survey: site security assessment
 
-**Ronin Sec Survey.** Installed as its own command, `survey` (the same thing as `isr site`).
+The Survey section of ISR Studio. Also its own command, `survey` (the same thing as `isr site`).
 
 For a property you own or are responsible for: where can someone approach unseen, which doors and
 gates are unwatched, and where would cameras do the most good.
@@ -480,8 +510,9 @@ pytest
 
 The tests generate synthetic DJI photos with real EXIF and XMP metadata and known targets
 (`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
-the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
-and that edits keep metadata and never touch the originals. The site tests build the demo property
+the `.kmz` structure, Art's ranking of degraded photos, duplicate grouping, horizon detection,
+and that edits keep metadata and never touch the originals. The app tests run a job in each
+section through the ISR Studio server. The site tests build the demo property
 (`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
 angled shots alone), that
 hidden doors rank highest and the recommended cameras cover them, the report, and the editor server.

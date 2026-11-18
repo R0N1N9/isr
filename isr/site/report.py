@@ -15,7 +15,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape as x
 
 from ..geo import from_local
-from ..ui import icon, page, theme_button
+from ..ui import APP_NAME, LOGO, icon, page, theme_button
 from . import model as M
 from .analysis import Analysis
 
@@ -308,7 +308,7 @@ def build_html(model: dict, an: Analysis) -> str:
     H = lambda t: f'<h2><span class="n">{next(sec):02d}</span>{t}</h2>'  # noqa: E731
     b = []
 
-    b.append(f'<header class="topbar"><div class="brand">{M.BRAND_LOGO}<div class="brand-name">{M.BRAND} <span>{M.APP}</span></div></div>'
+    b.append(f'<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME} <span>/ {M.APP}</span></div></div>'
              f'<div class="crumb">{h(model["name"])}</div><div class="spacer"></div>'
              f'<button class="btn" onclick="print()">{icon("download")}<span class="lbl">Print / save PDF</span></button>'
              f'{theme_button()}</header><div class="wrap">')
@@ -574,7 +574,7 @@ for being invisible from both the street and windows (2), and for unobserved gro
              'This report describes what could be observed and measured from a photographic survey on the date shown. '
              'It identifies where the site is exposed and how that could be reduced; it is not a guarantee against '
              'intrusion, and the recommendations should be confirmed on site before work is ordered. '
-             f'Produced with {M.BRAND} {M.APP}.</p></div>')
+             f'Produced with {APP_NAME}.</p></div>')
     return page(f"Site assessment: {h(model['name'])}", "".join(b), CSS, "", None, default_theme="light")
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from ..ui import page, theme_button
+from ..ui import APP_NAME, LOGO, page, theme_button
 from . import model as M
 
 CSS = r"""
@@ -96,7 +96,7 @@ body{display:flex;flex-direction:column;overflow:hidden}
 
 BODY = """
 <header class="topbar">
-  <div class="brand">__LOGO__<div class="brand-name">__BRAND__ <span>__APP__</span></div></div>
+  <a class="brand" href="__HOME__" title="__HOMETIP__" style="text-decoration:none">__LOGO__<div class="brand-name">__BRAND__ <span>__APP__</span></div></a>
   <input id="name" aria-label="Site name" spellcheck="false">
   <div class="spacer"></div>
   <span id="status" role="status"></span>
@@ -227,7 +227,7 @@ async function post(url) {
 }
 async function analyse() {
   const my = ++seq;
-  try { const j = await post("/api/analyse"); if (my !== seq) return;
+  try { const j = await post(C.base + "/api/analyse"); if (my !== seq) return;
     result = j.result; overlays = j.overlays; setStatus("Saved"); renderBase(); render(); renderResults();
   } catch (e) { if (my === seq) setStatus("Not saved: " + e.message, true); }
 }
@@ -237,7 +237,7 @@ function renderBase() {
   let h = `<rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)"/>`;
   const bm = model.basemap;
   if (bm && layers.base) { const [x0, y0, x1, y1] = bm.bounds;
-    h += `<image href="/files/${esc(bm.file)}" x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" preserveAspectRatio="none"/>`; }
+    h += `<image href="${C.base}/files/${esc(bm.file)}" x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" preserveAspectRatio="none"/>`; }
   if (result) { const [x0, y0, x1, y1] = result.grid.bounds;
     for (const [k, o] of [["natural", "natural"], ["cameras", "cameras"], ["proposed", "proposed"], ["blind", "blind_plan"]]) if (layers[k] && overlays[o])
       h += `<image href="${overlays[o]}" x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" preserveAspectRatio="none" style="image-rendering:pixelated"/>`; }
@@ -427,7 +427,7 @@ function renderResults() {
   if (all.length) { h += `<div class="sec"><span class="label">Detected in the drone photos</span>${gone ? `<button class="btn sm" data-det-act="restore">Restore ${gone} dismissed</button>` : ""}</div>`;
     if (!result.detections.length) h += `<p class="help">All dismissed.</p>`;
     for (const d of result.detections) { const ok = d.status === "confirmed";
-      h += `<div class="det" data-code="${d.code}" data-x="${d.x}" data-y="${d.y}"><img src="/files/${esc(d.crop)}" alt="" data-zoom="1">
+      h += `<div class="det" data-code="${d.code}" data-x="${d.x}" data-y="${d.y}"><img src="${C.base}/files/${esc(d.crop)}" alt="" data-zoom="1">
         <div><div class="t"><span class="badge" style="--c:#d946ef">${d.code}</span>${ok ? esc(C.dtypes[d.type] || "Confirmed") : "Possible " + esc(d.label.replace(/^colour anomaly/, "object"))}</div>
         <div class="d">${esc(d.context)} ${d.seen > 1 ? "In " + d.seen + " photos." : ""}</div>
         ${ok ? `<div class="row"><select data-det-type="${d.code}"><option value="">What is it?</option>${Object.keys(C.dtypes).map(k => `<option value="${k}" ${k === d.type ? "selected" : ""}>${C.dtypes[k]}</option>`).join("")}</select>
@@ -512,13 +512,13 @@ $("#name").addEventListener("change", ev => { model.name = ev.target.value.trim(
 
 function lightbox(src, caption) { const lb = $("#lb"); lb.querySelector("img").src = src; lb.querySelector("div div").textContent = caption; lb.classList.add("open"); }
 function openPhoto(id) { const p = model.photos.find(p => p.id === id); if (!p) return;
-  lightbox("/files/" + p.file, p.name + (p.heading != null ? " · looking " + Math.round(p.heading) + "°" : "")); }
+  lightbox(C.base + "/files/" + p.file, p.name + (p.heading != null ? " · looking " + Math.round(p.heading) + "°" : "")); }
 $("#lb").addEventListener("click", () => $("#lb").classList.remove("open"));
 $("#undo").onclick = () => restore(hi - 1); $("#redo").onclick = () => restore(hi + 1);
 $("#panelBtn").onclick = () => $("#side").classList.toggle("open");
 $("#report").onclick = async ev => { const b = ev.currentTarget; b.disabled = true; setStatus("Writing report…");
   const win = window.open("about:blank", "_blank");
-  try { clearTimeout(timer); const j = await post("/api/report"); setStatus("Saved"); if (win) win.location = j.url; else location.href = j.url; }
+  try { clearTimeout(timer); const j = await post(C.base + "/api/report"); setStatus("Saved"); if (win) win.location = j.url; else location.href = j.url; }
   catch (e) { if (win) win.close(); setStatus("Report failed: " + e.message, true); } b.disabled = false; };
 
 // ---------- start ----------
@@ -530,7 +530,7 @@ const LAYERS = [["base", "Base map", "#888"], ["cameras", "Camera coverage (exis
 $("#layers").innerHTML = LAYERS.map(l => `<label><input type="checkbox" data-l="${l[0]}" ${layers[l[0]] ? "checked" : ""}><i style="background:${l[2]}"></i>${l[1]}</label>`).join("");
 $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev.target.checked; renderBase(); render(); });
 (async () => {
-  try { model = await (await fetch("/api/site")).json(); } catch (e) { setStatus("Cannot load the project", true); return; }
+  try { model = await (await fetch(C.base + "/api/site")).json(); } catch (e) { setStatus("Cannot load the project", true); return; }
   $("#name").value = model.name; document.title = model.name + " · " + C.app;
   hist = [JSON.stringify(model.features)]; hi = 0;
   setTool("select"); renderBase(); fit(); renderResults(); renderProps(); renderSettings(); analyse();
@@ -538,9 +538,11 @@ $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev
 """
 
 
-def editor_html() -> str:
+def editor_html(base: str = "") -> str:
+    """``base`` is the URL prefix the project is served under ("" when it is the only one)."""
     data = {
-        "app": f"{M.BRAND} {M.APP}",
+        "app": f"{APP_NAME} {M.APP}",
+        "base": base,
         "dtypes": M.DETECTION_TYPES,
         "geometry": M.GEOMETRY,
         "kind": M.KIND_LABEL,
@@ -548,6 +550,7 @@ def editor_html() -> str:
         "access": {k: v[0] for k, v in M.ACCESS_TYPES.items()},
         "height": M.DEFAULT_HEIGHT,
     }
-    body = (BODY.replace("__LOGO__", M.BRAND_LOGO).replace("__THEME__", theme_button())
-            .replace("__BRAND__", M.BRAND).replace("__APP__", M.APP))
-    return page(f"{M.BRAND} {M.APP}", body, CSS, JS, json.loads(json.dumps(data)), default_theme="dark")
+    body = (BODY.replace("__LOGO__", LOGO).replace("__THEME__", theme_button())
+            .replace("__BRAND__", APP_NAME).replace("__APP__", M.APP)
+            .replace("__HOME__", "/" if base else "#").replace("__HOMETIP__", "Back to all jobs" if base else APP_NAME))
+    return page(f"{APP_NAME} {M.APP}", body, CSS, JS, json.loads(json.dumps(data)), default_theme="dark")
