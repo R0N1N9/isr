@@ -59,7 +59,7 @@ Survey as walk-round evidence. The mission planner writes DJI waypoint files.
 Needs Python 3.10+.
 
 ```bash
-git clone https://github.com/r0n1n9/isr.git && cd isr
+git clone https://github.com/r0n1n9/isrstudio.git && cd isrstudio
 python -m venv .venv
 ```
 
