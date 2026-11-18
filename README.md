@@ -390,6 +390,28 @@ hedge, move a camera, add a recommended camera to the plan and see what is still
 Re-run `survey new` on the same project folder to add photos; the plan is kept.
 `survey edit my_site` reopens it later.
 
+### People, vehicles and objects in the photos
+
+Survey runs the same detectors as `isr triage` over the drone photos and puts every hit on the site
+plan, so a person or a vehicle is reported by where they are on the site, not just by coordinates:
+inside or outside the boundary, on camera or in ground nobody can see, how far from the nearest door
+or gate, and whether it is against a fence. Something photographed several times is one hit.
+
+In the editor each hit appears as a pink marker and a card with a close-up. **Confirm** it and say
+what it is (person, vehicle, object) or **Dismiss** it. Expect false hits: the detector flags
+anything whose colour stands out, including roof edges and garden furniture. Only confirmed hits
+reach the report, under *Seen during the survey*, and a confirmed object left against a fence, or
+anything confirmed in unobserved ground, becomes a finding.
+
+```bash
+survey new E:\DCIM -o my_site -c red        # also look for a known colour (clothing, a vehicle)
+survey new E:\DCIM -o my_site --ai          # add the AI person/object detector
+survey new E:\DCIM -o my_site --no-detect   # plan and report only
+```
+
+`-c`, `--sensitivity` and `--ai` behave as described under [Detectors](#detectors). To search open
+country for a missing person, `isr triage` and `isr plan` remain the tools for that job.
+
 ### 3. Report
 
 **Generate report** (or `survey report my_site --open`) writes into the project folder:
@@ -419,6 +441,8 @@ The report covers:
   and what each one covers, chosen to deal with the worst-exposed access points first.
 * **Access points**: for each door, window, gate and driveway: on camera or not, seen from the
   street or not, how much hidden ground surrounds it, and the survey photos that show it.
+* **Seen during the survey**: confirmed people, vehicles and objects, each with a close-up and where
+  it was in relation to the plan.
 * **Perimeter**: a map of the boundary with every opening marked, how much of it is closed, each gap
   not marked as a gate with its length and position, and a schedule of every wall, fence and hedge
   with type, height and length.

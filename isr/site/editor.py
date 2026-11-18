@@ -61,6 +61,15 @@ body{display:flex;flex-direction:column;overflow:hidden}
 .item .d{grid-column:2;color:var(--muted);font-size:12px}
 .item .a{grid-column:2;font-size:12px;color:var(--ink-2)}
 .item .btn{grid-column:2;justify-self:start;margin-top:5px}
+.det{display:grid;grid-template-columns:72px 1fr;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;
+  background:var(--surface);cursor:pointer;transition:border-color .2s,box-shadow .2s}
+.det:hover{border-color:var(--line-2)}.det.hot{border-color:#d946ef;box-shadow:0 0 0 3px rgba(217,70,239,.25)}
+.det img{width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:zoom-in;background:#000}
+.det>div{min-width:0}
+.det .t{font-weight:600;font-size:13px;display:flex;gap:7px;align-items:center}
+.det .d{color:var(--muted);font-size:12px;margin:3px 0 6px}
+.det .row{display:flex;gap:6px;margin-top:5px}
+.det select,.det input{height:28px;min-width:0;flex:1;padding:0 7px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font:500 12px var(--font)}
 .badge{display:inline-grid;place-items:center;min-width:26px;height:19px;padding:0 5px;border-radius:6px;font:700 10.5px var(--mono);
   color:#fff;background:var(--c,var(--muted));align-self:start;margin-top:1px}
 .steps{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:14px;background:var(--surface-2)}
@@ -129,7 +138,7 @@ const svg = $("#map"), gBase = $("#gBase"), gFeat = $("#gFeat"), gUi = $("#gUi")
 let model = null, result = null, overlays = {}, sel = null, tool = "select", draft = null, cursor = null;
 let drag = null, flash = null, seq = 0, timer = null, spaceDown = false;
 const view = {cx: 0, cy: 0, mpp: 0.1};
-const layers = {base: true, cameras: true, natural: false, blind: true, proposed: true, photos: true};
+const layers = {base: true, cameras: true, natural: false, blind: true, proposed: true, photos: true, detections: true};
 const last = {barrier: "fence", access: "door"};
 let hist = [], hi = -1;
 
@@ -276,6 +285,8 @@ function render() {
     if (p.heading != null) { const a = p.heading * Math.PI / 180, L = 20 * u;
       h += `<line x1="${p.x}" y1="${-p.y}" x2="${p.x + Math.sin(a) * L}" y2="${-(p.y + Math.cos(a) * L)}" stroke="#fff" stroke-width="${2.2 * u}" stroke-linecap="round" pointer-events="none"/>`; }
     h += `<circle data-photo="${p.id}" cx="${p.x}" cy="${-p.y}" r="${5 * u}" fill="#fff" stroke="#111" stroke-width="${1 * u}" style="cursor:zoom-in"><title>${esc(p.name)}</title></circle>`; }
+  if (result && layers.detections) for (const d of result.detections)
+    top += tag([d.x, d.y], d.code, "#d946ef", d.status === "confirmed" ? "pill" : "box", u, `data-det="${d.code}" style="cursor:pointer"`);
   gFeat.innerHTML = h + top;
 
   // selection handles, draft, flash
@@ -339,6 +350,8 @@ svg.addEventListener("pointerdown", ev => {
   }
   const f = sel && feat(sel);
   if (t.dataset.photo) return openPhoto(t.dataset.photo);
+  const dg = t.closest("[data-det]");
+  if (dg) { showTab("results"); const it = document.querySelector(`.det[data-code="${dg.dataset.det}"]`); if (it) { it.scrollIntoView({block: "center"}); it.classList.add("hot"); setTimeout(() => it.classList.remove("hot"), 1600); } return; }
   if (t.dataset.v != null && f) { const i = +t.dataset.v, min = GEOM[f.kind] === "polygon" ? 3 : 2;
     if (ev.altKey || ev.button === 2) { if (f.pts.length > min) { f.pts.splice(i, 1); commit(); renderProps(); } return; }
     drag = {type: "vertex", f, i}; return; }
@@ -410,9 +423,21 @@ function renderResults() {
   if (result.recommended.length) { h += `<div class="sec"><span class="label">Recommended cameras</span><button class="btn sm" data-adopt="all">Add all to plan</button></div>`;
     for (const p of result.recommended) h += `<div class="item" data-x="${p.x}" data-y="${p.y}"><span class="badge" style="--c:#10a35a">${p.id}</span><span class="t">${esc(p.mount)}</span>
       <span class="d">Aim ${p.bearing}° ${p.aim} · adds ${p.adds_m2} m²${p.covers.length ? " · covers " + esc(p.covers.join(", ")) : ""}</span><button class="btn sm" data-adopt="${p.id}">Add to plan</button></div>`; }
+  const all = model.detections || [], gone = all.filter(d => d.status === "dismissed").length;
+  if (all.length) { h += `<div class="sec"><span class="label">Detected in the drone photos</span>${gone ? `<button class="btn sm" data-det-act="restore">Restore ${gone} dismissed</button>` : ""}</div>`;
+    if (!result.detections.length) h += `<p class="help">All dismissed.</p>`;
+    for (const d of result.detections) { const ok = d.status === "confirmed";
+      h += `<div class="det" data-code="${d.code}" data-x="${d.x}" data-y="${d.y}"><img src="/files/${esc(d.crop)}" alt="" data-zoom="1">
+        <div><div class="t"><span class="badge" style="--c:#d946ef">${d.code}</span>${ok ? esc(C.dtypes[d.type] || "Confirmed") : "Possible " + esc(d.label.replace(/^colour anomaly/, "object"))}</div>
+        <div class="d">${esc(d.context)} ${d.seen > 1 ? "In " + d.seen + " photos." : ""}</div>
+        ${ok ? `<div class="row"><select data-det-type="${d.code}"><option value="">What is it?</option>${Object.keys(C.dtypes).map(k => `<option value="${k}" ${k === d.type ? "selected" : ""}>${C.dtypes[k]}</option>`).join("")}</select>
+          <input data-det-note="${d.code}" placeholder="Note for the report" value="${esc(d.note || "")}"></div>` : ""}
+        <div class="row"><button class="btn sm ${ok ? "on-good" : ""}" data-det-act="${ok ? "open" : "confirmed"}" data-code="${d.code}">${ok ? "Confirmed" : "Confirm"}</button>
+          <button class="btn sm" data-det-act="dismissed" data-code="${d.code}">Dismiss</button></div></div></div>`; } }
   h += `<div class="sec"><span class="label">Findings</span></div>`;
   if (!result.findings.length) h += `<p class="help">No findings.</p>`;
   const where = {}; for (const a of result.access) where[a.id] = a; for (const b of result.blind_spots) where[b.id] = b;
+  for (const d of result.detections) where[d.code] = d;
   for (const f of result.findings) { const w = where[f.ref] || (feat(f.ref) ? {x: feat(f.ref).pts[0][0], y: feat(f.ref).pts[0][1]} : null);
     h += `<div class="item" ${w ? `data-x="${w.x}" data-y="${w.y}" data-ref="${esc(f.ref)}"` : ""}><span class="badge" style="--c:${PRI[f.severity]}">${f.severity[0].toUpperCase()}</span>
       <span class="t">${esc(f.title)}</span><span class="d">${esc(f.detail)}</span><span class="a">${esc(f.action)}</span></div>`; }
@@ -421,7 +446,15 @@ function renderResults() {
       <span class="t">${esc(a.name)}</span><span class="d">${a.camera_now ? "On camera" : a.camera_planned ? "Planned camera" : "No camera"} · ${a.street ? "seen from street" : "hidden from street"}${a.window ? " · seen from a window" : ""}</span></div>`; }
   el.innerHTML = h;
 }
+function setDet(code, patch) { for (const d of model.detections || []) if (code === "*" ? d.status === "dismissed" : d.code === code) Object.assign(d, patch); schedule(30); }
+$("#p-results").addEventListener("change", ev => { const t = ev.target;
+  if (t.dataset.detType != null) setDet(t.dataset.detType, {type: t.value}); else if (t.dataset.detNote != null) setDet(t.dataset.detNote, {note: t.value}); });
 $("#p-results").addEventListener("click", ev => { const b = ev.target.closest("[data-adopt]"); if (b) return adopt(b.dataset.adopt);
+  const da = ev.target.closest("[data-det-act]");
+  if (da) return da.dataset.detAct === "restore" ? setDet("*", {status: "open"}) : setDet(da.dataset.code, {status: da.dataset.detAct});
+  if (ev.target.dataset.zoom) return lightbox(ev.target.src, "Detail from the drone photo");
+  if (ev.target.closest("select,input")) return;
+  const dt = ev.target.closest(".det"); if (dt) return focusOn(+dt.dataset.x, +dt.dataset.y);
   const it = ev.target.closest(".item[data-x]"); if (it) focusOn(+it.dataset.x, +it.dataset.y, it.dataset.ref); });
 
 function renderProps() {
@@ -477,9 +510,9 @@ $("#p-settings").addEventListener("change", ev => { const t = ev.target;
   if (t.dataset.m) model[t.dataset.m] = t.value; else if (t.dataset.s) { const v = parseFloat(t.value); if (isFinite(v)) model.settings[t.dataset.s] = v; } else return; schedule(50); });
 $("#name").addEventListener("change", ev => { model.name = ev.target.value.trim() || "Site"; document.title = model.name + " · " + C.app; schedule(50); });
 
-function openPhoto(id) { const p = model.photos.find(p => p.id === id); if (!p) return; const lb = $("#lb");
-  lb.querySelector("img").src = "/files/" + p.file; lb.querySelector("div div").textContent = p.name + (p.heading != null ? " · looking " + Math.round(p.heading) + "°" : "");
-  lb.classList.add("open"); }
+function lightbox(src, caption) { const lb = $("#lb"); lb.querySelector("img").src = src; lb.querySelector("div div").textContent = caption; lb.classList.add("open"); }
+function openPhoto(id) { const p = model.photos.find(p => p.id === id); if (!p) return;
+  lightbox("/files/" + p.file, p.name + (p.heading != null ? " · looking " + Math.round(p.heading) + "°" : "")); }
 $("#lb").addEventListener("click", () => $("#lb").classList.remove("open"));
 $("#undo").onclick = () => restore(hi - 1); $("#redo").onclick = () => restore(hi + 1);
 $("#panelBtn").onclick = () => $("#side").classList.toggle("open");
@@ -493,7 +526,7 @@ $("#tools").innerHTML = `<div class="label">Draw</div>` + TOOLS.map(t => `<butto
   `<div class="hint">Trace what you see in the aerial image. Heights and types are set under <b>Selected</b>.</div>`;
 $("#tools").addEventListener("click", ev => { const b = ev.target.closest(".tool"); if (b) setTool(b.dataset.t); });
 const LAYERS = [["base", "Base map", "#888"], ["cameras", "Camera coverage (existing + planned)", "rgba(59,130,246,.7)"], ["natural", "Seen from street / windows", "rgba(234,179,8,.7)"],
-  ["blind", "Seen by nobody", "rgba(229,72,77,.75)"], ["proposed", "Recommended cameras", "rgba(16,163,90,.75)"], ["photos", "Survey photos", "#fff"]];
+  ["blind", "Seen by nobody", "rgba(229,72,77,.75)"], ["proposed", "Recommended cameras", "rgba(16,163,90,.75)"], ["photos", "Survey photos", "#fff"], ["detections", "Detected in photos", "#d946ef"]];
 $("#layers").innerHTML = LAYERS.map(l => `<label><input type="checkbox" data-l="${l[0]}" ${layers[l[0]] ? "checked" : ""}><i style="background:${l[2]}"></i>${l[1]}</label>`).join("");
 $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev.target.checked; renderBase(); render(); });
 (async () => {
@@ -508,6 +541,7 @@ $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev
 def editor_html() -> str:
     data = {
         "app": f"{M.BRAND} {M.APP}",
+        "dtypes": M.DETECTION_TYPES,
         "geometry": M.GEOMETRY,
         "kind": M.KIND_LABEL,
         "barrier": M.BARRIER_TYPES,

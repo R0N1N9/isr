@@ -280,7 +280,21 @@ def cmd_site(a) -> int:
             print(f"error: {src} does not exist", file=sys.stderr)
             return 2
         out = Path(a.output).expanduser() if a.output else Path.cwd() / f"site_{time.strftime('%Y%m%d_%H%M%S')}"
-        model = run_survey(src, out, name=a.name, ground_offset_m=a.ground_offset)
+        cfg = None
+        if not a.no_detect:
+            from .triage.detectors import parse_color
+            from .triage.pipeline import TriageConfig
+
+            for c in a.color:
+                try:
+                    parse_color(c)
+                except ValueError as e:
+                    print(f"error: {e}", file=sys.stderr)
+                    return 2
+            cfg = TriageConfig(colors=a.color, sensitivity=a.sensitivity, ai=a.ai, ai_model=a.ai_model,
+                               ground_offset_m=a.ground_offset)
+        model = run_survey(src, out, name=a.name, ground_offset_m=a.ground_offset, detect=not a.no_detect,
+                           detect_cfg=cfg)
         if not model["photos"]:
             print("  ! no photos found; the plan can still be sketched on a blank grid")
         elif not model["basemap"]:
@@ -290,6 +304,9 @@ def cmd_site(a) -> int:
             print("  ! base map built from angled shots only. The ground is placed correctly, but roofs and\n"
                   "    treetops lean away from the drone by roughly their own height: trace buildings where the\n"
                   "    walls meet the ground. One photo taken straight down from above the site avoids this.")
+        if model.get("detections"):
+            print(f"  {len(model['detections'])} possible people, vehicles or objects found in the drone photos: "
+                  "confirm or dismiss each one in the editor.")
         print(f"Project: {out}")
         if a.no_edit:
             print(f"Next: survey edit {out}")
@@ -456,6 +473,13 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--name", help="site name for the report")
     sv.add_argument("--ground-offset", type=float, default=0.0,
                     help="height of the site above (+) or below (-) the drone's take-off point, metres")
+    sv.add_argument("--no-detect", action="store_true",
+                    help="do not look for people, vehicles and objects in the drone photos")
+    sv.add_argument("-c", "--color", action="append", default=[], metavar="COLOUR",
+                    help="also look for this colour (clothing, a vehicle): a name such as red, or #rrggbb; repeatable")
+    sv.add_argument("--sensitivity", type=float, default=1.0, help="detector sensitivity: 1.5 flags more, 0.7 fewer")
+    sv.add_argument("--ai", action="store_true", help="also run the AI person/object detector (needs the [ai] extra)")
+    sv.add_argument("--ai-model", default="yolov8n.pt", help="weights for --ai")
     sv.add_argument("--no-edit", action="store_true", help="just build the project, do not open the editor")
     se = ss.add_parser("edit", help="open a project in the editor (local web page)",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)

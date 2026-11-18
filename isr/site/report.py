@@ -147,6 +147,9 @@ class MapSVG:
         if blind:
             for b in (self.r["blind_spots"] if blind is True else blind):
                 o.append(self._label(b["x"], b["y"], b["id"], "#e5484d", shape="rect"))
+        for d in self.r.get("detections", ()):
+            if d["status"] == "confirmed":
+                o.append(self._label(d["x"], d["y"], d["code"], "#d946ef", shape="cam"))
         if access:
             for a in self.r["access"]:
                 col = {"high": "#e5484d", "medium": "#e08a00", "low": "#12a150"}[a["priority"]]
@@ -470,6 +473,30 @@ def build_html(model: dict, an: Analysis) -> str:
     else:
         b.append('<p class="empty-note">No access points marked.</p>')
 
+    # seen during the survey (only when the detector was run)
+    if model.get("detections"):
+        b.append(H("Seen during the survey"))
+        conf = [d for d in r["detections"] if d["status"] == "confirmed"]
+        todo = sum(d["status"] == "open" for d in r["detections"])
+        b.append('<p class="lead">People, vehicles and loose objects picked out of the drone photos by the detector and '
+                 'confirmed by the assessor, placed on the plan (pink markers on the site plan above).</p>')
+        if conf:
+            b.append('<div class="cards">')
+            for d in conf:
+                note = f'<div style="margin-top:6px">{h(d["note"])}</div>' if d["note"] else ""
+                b.append(f'<div class="acard"><div class="t">{_code(d["code"], "#d946ef")}'
+                         f'{h(M.DETECTION_TYPES.get(d["type"], "Item"))}</div>'
+                         f'<div class="sub"><span class="mono">{d["lat"]:.6f}, {d["lon"]:.6f}</span> · seen in '
+                         f'{d["seen"]} photo{"s" if d["seen"] != 1 else ""}</div><div style="margin-top:6px">{h(d["context"])}</div>'
+                         f'{note}<div class="thumbs"><a href="{h(d["crop"])}" style="width:150px;height:150px">'
+                         f'<img src="{h(d["crop"])}" alt=""></a></div></div>')
+            b.append("</div>")
+        else:
+            b.append('<p class="empty-note">Nothing confirmed.</p>')
+        if todo:
+            b.append(f'<p class="sub">{todo} further detection{"s were" if todo != 1 else " was"} not reviewed and '
+                     f'{"are" if todo != 1 else "is"} not shown.</p>')
+
     # 7 perimeter
     b.append(H("Perimeter"))
     per = r["perimeter"]
@@ -590,6 +617,12 @@ def write_geojson(model: dict, r: dict, path: Path) -> None:
         feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [k["lon"], k["lat"]]},
                       "properties": {"title": f"{k['id']} blind spot", "kind": "blind_spot", "area_m2": k["area_m2"],
                                      "severity": k["severity"], "marker-color": "#e5484d"}})
+    for d in r.get("detections", []):
+        if d["status"] == "confirmed":
+            feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [d["lon"], d["lat"]]},
+                          "properties": {"title": f"{d['code']} {M.DETECTION_TYPES.get(d['type'], 'item')}",
+                                         "kind": "detection", "context": d["context"], "note": d["note"],
+                                         "marker-color": "#d946ef"}})
     path.write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
 
 
@@ -645,6 +678,10 @@ def write_csv(r: dict, path: Path) -> None:
             w.writerow([p["id"], "camera (recommended)", p["mount"], "",
                         f"aim {p['bearing']} deg, {p['hfov']} deg lens, {p['range']:.0f} m, {p['height']:.1f} m high",
                         f"covers {', '.join(p['covers']) or 'open ground'}", p["lat"], p["lon"]])
+        for d in r.get("detections", []):
+            if d["status"] == "confirmed":
+                w.writerow([d["code"], "seen during survey", M.DETECTION_TYPES.get(d["type"], "item"), "",
+                            d["context"], d["note"], d["lat"], d["lon"]])
         for g in (r["perimeter"] or {}).get("gaps", []):
             w.writerow(["", "perimeter opening", g["declared"] or "unmarked gap", "" if g["declared"] else "medium",
                         f"{g['length_m']:.1f} m on the {g['side']} side", "", g["lat"], g["lon"]])

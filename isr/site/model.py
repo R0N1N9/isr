@@ -71,6 +71,9 @@ ACCESS_TYPES = {
     "other": ("Other opening", 2),
 }
 
+# what a reviewer can call something the detector found in the drone photos
+DETECTION_TYPES = {"person": "Person", "vehicle": "Vehicle", "object": "Object", "other": "Other"}
+
 KIND_LABEL = {"boundary": "Boundary", "building": "Building", "barrier": "Barrier", "vegetation": "Vegetation",
               "street": "Public way", "access": "Access point", "camera": "Camera"}
 GEOMETRY = {"boundary": "polygon", "building": "polygon", "vegetation": "polygon", "barrier": "line",
@@ -152,6 +155,19 @@ def normalise(model: dict) -> dict:
         f["notes"] = str(f.get("notes") or "")[:2000]
         feats.append(f)
     model["features"] = feats
+
+    dets = []
+    for d in model.get("detections") or []:
+        if not isinstance(d, dict) or not all(isinstance(d.get(k), (int, float)) and math.isfinite(d[k]) for k in "xy"):
+            continue
+        if d.get("status") not in ("open", "confirmed", "dismissed"):
+            d["status"] = "open"
+        if d.get("type") not in DETECTION_TYPES:
+            d["type"] = ""
+        d["note"] = str(d.get("note") or "")[:500]
+        d["code"] = str(d.get("code") or f"D{len(dets) + 1}")[:8]
+        dets.append(d)
+    model["detections"] = dets
     return model
 
 

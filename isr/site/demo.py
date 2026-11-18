@@ -62,6 +62,8 @@ FEATURES = [
                                                          "status": "existing"}),
 ]
 
+PEOPLE = [((-15.0, 12.0), (214, 40, 44))]  # someone in a red jacket standing in the hidden back corner
+
 GROUND = [  # name, east, north, heading, caption
     ("walk_01_front.jpg", -2, -20.5, 0, "Front of house from the pavement"),
     ("walk_02_driveway.jpg", 15, -20, 0, "Driveway and garage"),
@@ -146,6 +148,12 @@ def render_aerial(seed: int = 3) -> Image.Image:
     d.polygon(_pp(SHED), fill=(112, 96, 74))
     d.polygon(_pp([(13.2, -16.5), (15.1, -16.5), (15.1, -12.2), (13.2, -12.2)]), fill=(34, 60, 122))  # car
     d.polygon(_pp([(13.4, -15.4), (14.9, -15.4), (14.9, -13.2), (13.4, -13.2)]), fill=(24, 30, 44))
+    for (x, y), jacket in PEOPLE:  # people seen from above: shoulders, head, a short shadow
+        px, py = _to_px(x, y)
+        sx, sy = _to_px(x + sh[0] * 1.2, y + sh[1] * 1.2)
+        d.ellipse((sx - .28 / g, sy - .2 / g, sx + .28 / g, sy + .2 / g), fill=(46, 62, 38))
+        d.ellipse((px - .3 / g, py - .2 / g, px + .3 / g, py + .2 / g), fill=jacket)
+        d.ellipse((px - .11 / g, py - .11 / g, px + .11 / g, py + .11 / g), fill=(58, 40, 30))
     return im.filter(ImageFilter.GaussianBlur(0.9))
 
 
@@ -265,7 +273,7 @@ def demo_features() -> list[dict]:
 def build_demo(out: Path, log=print) -> dict:
     out = Path(out)
     write_photos(out / "source_photos")
-    model = run_survey(out / "source_photos", out, name="Demo property (synthetic)", log=log)
+    model = run_survey(out / "source_photos", out, name="Demo property (synthetic)", log=log, detect=True)
     model["features"] = demo_features()
     model["assessor"] = "A. Assessor"
     model["company"] = M.BRAND

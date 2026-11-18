@@ -362,6 +362,7 @@ class Analysis:
             "recommended": self.proposals, "perimeter": perimeter, "blockers": blockers,
             "grid": {"bounds": [sc.xmin, sc.ymin, sc.xmax, sc.ymax], "cell_m": sc.cell},
         }
+        self.result["detections"] = self._detections(access)
         self.result["findings"] = self._findings()
 
     # -- observers -----------------------------------------------------------
@@ -717,6 +718,41 @@ class Analysis:
                 "line": [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in pts[:: max(1, count // 40)]] +
                         [[round(float(pts[-1][0]), 2), round(float(pts[-1][1]), 2)]]}
 
+    # -- things the detector found in the drone photos ---------------------------
+
+    def _detections(self, access):
+        """Site context for each detection: inside or outside, who can see it, what it is near."""
+        sc = self.sc
+        segs = np.array([(*a, *b) for f in sc.by_kind["barrier"] for a, b in zip(f["pts"], f["pts"][1:])],
+                        float).reshape(-1, 4)
+        out = []
+        for d in self.model.get("detections") or []:
+            if d["status"] == "dismissed" or not sc.in_grid(d["x"], d["y"]):
+                continue
+            j, i = sc.cell_of(d["x"], d["y"])
+            spot = np.hypot(sc.cx[None, :] - d["x"], sc.cy[:, None] - d["y"]) <= max(1.0, sc.cell * 1.5)
+            inside = bool(sc.inside[j, i])
+            on_camera = bool((self.cam_now & spot).any())
+            overlooked = bool((self.natural & spot).any())
+            near = min(access, key=lambda a: math.hypot(a["x"] - d["x"], a["y"] - d["y"]), default=None)
+            near_d = math.hypot(near["x"] - d["x"], near["y"] - d["y"]) if near else None
+            fence_d = float(_dist_to_segments(np.array([[d["x"], d["y"]]]), segs)[0]) if len(segs) else None
+            parts = [("Inside the boundary" if inside else "Outside the boundary") if sc.boundaries else "On the site"]
+            parts.append("on camera" if on_camera else "seen from the street or a window" if overlooked
+                         else "where nobody can see")
+            if near and near_d <= 10:
+                parts.append(f"{near_d:.0f} m from {near['name']}")
+            if fence_d is not None and fence_d <= 1.5:
+                parts.append("against a fence, wall or hedge")
+            out.append({**{k: d.get(k) for k in ("code", "x", "y", "lat", "lon", "score", "label", "area_m2", "photo",
+                                                 "photo_id", "crop", "seen", "status", "type", "note")},
+                        "inside": inside, "on_camera": on_camera, "overlooked": overlooked,
+                        "unseen": inside and not on_camera and not overlooked,
+                        "near_access": near["name"] if near and near_d <= 10 else None,
+                        "near_access_m": round(near_d, 1) if near and near_d <= 10 else None,
+                        "at_barrier": fence_d is not None and fence_d <= 1.5, "context": ", ".join(parts) + "."})
+        return out
+
     # -- what hides the grounds from the street -------------------------------
 
     def _blockers(self, access):
@@ -771,6 +807,19 @@ class Analysis:
             add(b["severity"], "Blind spot", f"{b['id']}: {b['area_m2']:.0f} m² unobserved on the {b['where']}"
                 if "side" in b["where"] else f"{b['id']}: {b['area_m2']:.0f} m² unobserved, {b['where']}",
                 f"Nobody on the street, at a window or on camera can see this area.{by}{near}", fix, b["id"])
+        for d in r["detections"]:
+            if d["status"] != "confirmed":
+                continue
+            what = M.DETECTION_TYPES.get(d["type"], "Item")
+            sev = "medium" if d["inside"] and (d["unseen"] or (d["type"] == "object" and d["at_barrier"])) else "low"
+            if d["type"] == "object" and d["at_barrier"]:
+                act = "Anything left against a barrier can be used to climb it: move it away from the boundary."
+            elif d["unseen"]:
+                act = "It was in ground no camera or passer-by can see: this is where cover is most needed."
+            else:
+                act = "Recorded for reference."
+            add(sev, "Seen in photos", f"{d['code']}: {what.lower()} seen during the survey",
+                d["context"] + (f" {d['note']}" if d["note"] else ""), act, d["code"])
         per = r["perimeter"]
         if per:
             for g in per["gaps"]:

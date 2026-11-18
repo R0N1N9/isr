@@ -104,7 +104,9 @@ def test_survey_command_and_default_branding(tmp_path, capsys):
 
     assert M.new_model("x", (0, 0), (0, 0, 1, 1))["company"] == "Ronin Sec"
     demo.write_obliques(tmp_path / "shots")
-    assert survey_main(["new", str(tmp_path / "shots"), "-o", str(tmp_path / "p"), "--no-edit"]) == 0
+    assert survey_main(["new", str(tmp_path / "shots"), "-o", str(tmp_path / "p"), "--no-edit", "--no-detect"]) == 0
+    assert M.load(tmp_path / "p" / "site.json")["detections"] == []
+    assert survey_main(["new", str(tmp_path / "shots"), "-o", str(tmp_path / "p"), "--no-edit", "-c", "notacolour"]) == 2
     assert survey_main(["report", str(tmp_path / "p")]) == 0
     assert "Ronin Sec" in (tmp_path / "p" / "report.html").read_text()
     assert survey_main(["report", str(tmp_path / "missing")]) == 2
@@ -246,6 +248,49 @@ def test_perimeter_of_demo(result):
 def test_photos_are_linked_to_what_they_show(result):
     acc = {a["name"]: a for a in result["access"]}
     assert acc["Back door"]["photos"] and acc["Side door"]["photos"] and acc["Front door"]["photos"]
+
+
+def test_detector_finds_the_person_and_places_them_on_the_plan(project, result):
+    """SAR triage inside the survey: the red jacket in the back corner, located and put in site context."""
+    out, model = project
+    (px, py), _ = demo.PEOPLE[0]
+    want = (px - demo.DRONE[0], py - demo.DRONE[1])
+    d = min(result["detections"], key=lambda d: (d["x"] - want[0]) ** 2 + (d["y"] - want[1]) ** 2)
+    assert (d["x"], d["y"]) == pytest.approx(want, abs=1.5)
+    assert d["code"] == "D1" and d["status"] == "open" and d["seen"] >= 3  # same person in the angled shots: one hit
+    assert d["inside"] and d["unseen"] and not d["on_camera"] and "nobody can see" in d["context"]
+    assert (out / d["crop"]).exists()
+    assert not any(f["category"] == "Seen in photos" for f in result["findings"])  # nothing confirmed yet
+
+    m = json.loads(json.dumps(model))
+    for x in m["detections"]:
+        x.update(status="confirmed", type="person", note="by the shed") if x["code"] == "D1" else x.update(status="dismissed")
+    an = analyse(m)
+    assert [x["code"] for x in an.result["detections"]] == ["D1"]
+    f = next(f for f in an.result["findings"] if f["category"] == "Seen in photos")
+    assert f["severity"] == "medium" and "person" in f["title"] and "by the shed" in f["detail"]
+    html = write_report(m, out, an).read_text()
+    assert "Seen during the survey" in html and "by the shed" in html and d["crop"] in html
+    assert "seen during survey" in (out / "assessment.csv").read_text()
+    # a re-survey keeps what the reviewer decided
+    M.save(m, out / "site.json")
+    again = run_survey(out / "source_photos", out, log=lambda *a: None, detect=True)
+    kept = next(x for x in again["detections"] if x["code"] == "D1")
+    assert kept["status"] == "confirmed" and kept["type"] == "person" and kept["note"] == "by the shed"
+    assert sum(x["status"] == "dismissed" for x in again["detections"]) == len(again["detections"]) - 1
+    M.save(model, out / "site.json")
+
+
+def test_object_against_a_fence_is_flagged_when_confirmed():
+    fence = {"kind": "barrier", "subtype": "fence", "pts": [[-20, 20], [20, 20]]}
+    m = _model([LOT, fence])
+    m["detections"] = [{"x": 5, "y": 19.2, "lat": 0, "lon": 0, "status": "confirmed", "type": "object", "code": "D1",
+                        "label": "x", "score": 0.8, "seen": 1, "crop": "c.jpg"},
+                       {"x": 0, "y": 0, "status": "dismissed"}, {"x": "bad"}]
+    r = analyse(m).result
+    assert len(r["detections"]) == 1 and r["detections"][0]["at_barrier"]
+    f = next(f for f in r["findings"] if f["category"] == "Seen in photos")
+    assert f["severity"] == "medium" and "climb" in f["action"]
 
 
 def test_report_and_exports(project):

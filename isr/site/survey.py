@@ -148,8 +148,60 @@ def build_basemap(shots, bounds, out_path: Path, max_px: int = 3000, log=print) 
             "width": W, "height": H, "straight_down": steep, "angled": len(shots) - steep}
 
 
+def detect_objects(src: Path, out: Path, photos: list[dict], origin, previous=(), cfg=None, log=print) -> list[dict]:
+    """Run the SAR triage detectors over the drone photos and put every hit on the site plan.
+
+    The same detectors that look for a missing person in open country (colour
+    anomaly, target colours, optional AI) pick out people, vehicles and loose
+    objects on a site. Hits seen in several photos are merged, and anything
+    already confirmed or dismissed in an earlier survey keeps its status.
+    """
+    from ..triage.pipeline import TriageConfig, run_triage
+
+    by_name = {p["name"]: p for p in photos if p["kind"] in ("nadir", "oblique")}
+    if not by_name or not Path(src).is_dir():
+        return []
+    cfg = cfg or TriageConfig()
+    data = run_triage(src, out / "detections", cfg, log=lambda *a: None)
+    hits = []
+    for tp in data["photos"]:
+        ph = by_name.get(tp["rel"])
+        if not ph:
+            continue
+        for d in tp["detections"]:
+            if d["position_source"] != "projected":
+                continue
+            x, y = to_local(origin[0], origin[1], d["lat"], d["lon"])
+            if math.hypot(x - ph["x"], y - ph["y"]) > 3.0 * (ph["alt_m"] or 0):
+                continue  # far end of an angled shot: position too uncertain
+            hits.append({"x": round(x, 2), "y": round(y, 2), "lat": round(d["lat"], 7), "lon": round(d["lon"], 7),
+                         "score": d["score"], "label": d["label"], "kinds": d["kinds"], "area_m2": d["area_m2"],
+                         "photo": ph["name"], "photo_id": ph["id"], "crop": f"detections/{d['crop']}",
+                         "steep": ph["kind"] == "nadir", "seen": 1})
+    # one object photographed several times is one detection; keep the view from most nearly overhead
+    hits.sort(key=lambda d: (not d["steep"], -d["score"]))
+    merged = []
+    for d in hits:
+        twin = next((m for m in merged if math.hypot(m["x"] - d["x"], m["y"] - d["y"]) <= 2.5), None)
+        if twin:
+            twin["seen"] += 1
+            twin["score"] = max(twin["score"], d["score"])
+        else:
+            merged.append(d)
+    merged.sort(key=lambda d: -d["score"])
+    merged = merged[:60]
+    for i, d in enumerate(merged, 1):
+        d.pop("steep")
+        d.update(code=f"D{i}", status="open", type="", note="")
+        old = next((o for o in previous if math.hypot(o["x"] - d["x"], o["y"] - d["y"]) <= 2.5), None)
+        if old:
+            d.update(status=old["status"], type=old["type"], note=old["note"])
+    log(f"  detector: {len(merged)} thing(s) to review in the drone photos")
+    return merged
+
+
 def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: float = 0.0,
-               max_px: int = 3000, log=print) -> dict:
+               max_px: int = 3000, log=print, detect: bool = False, detect_cfg=None) -> dict:
     """Read the photos, build the base map and write ``site.json``. Returns the model.
 
     Re-running on an existing project refreshes photos and base map but keeps
@@ -251,6 +303,9 @@ def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: f
     else:
         model = M.new_model(name or (src.name if src.is_dir() else src.parent.name) or "Site", (lat0, lon0),
                             bounds, basemap, photos)
+    if detect:
+        model["detections"] = detect_objects(src, out, photos, (lat0, lon0), (existing or {}).get("detections") or (),
+                                             detect_cfg, log)
     model["survey"] = {"source": str(src), "date": time.strftime("%Y-%m-%d %H:%M"),
                        "georeferenced": bool(anchor), "seconds": round(time.time() - t0, 1),
                        "counts": {k: sum(p["kind"] == k for p in photos)
