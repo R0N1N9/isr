@@ -66,7 +66,34 @@ def test_folder_picker(studio):
     assert d["photos"] == 2 and d["parent"] == str(studio["root"])
     code, d = studio["call"]("/api/ls?path=" + str(studio["root"]))
     assert {"card", "site", "ws"} <= set(d["dirs"])
+    assert b'data-default-theme="dark"' in studio["call"]("/", raw=True)[1]
     assert studio["call"]("/api/ls?path=/definitely/not/here")[1]["path"] == str(Path.home().resolve())
+
+
+def test_dropped_folder_is_found_on_disk(studio):
+    """A browser only reveals a dropped folder's name and contents; the server works out where it lives."""
+    root, photos = studio["root"], studio["photos"]
+    size = (photos / "DJI_0000.JPG").stat().st_size
+    assert A.locate("card", [{"path": "DJI_0000.JPG", "size": size}], roots=[root]) == [str(photos)]
+    # a same-named folder elsewhere with different contents is not mistaken for it
+    decoy = root / "other" / "card"
+    decoy.mkdir(parents=True)
+    (decoy / "DJI_0000.JPG").write_bytes(b"not the same photo")
+    assert A.locate("card", [{"path": "DJI_0000.JPG", "size": size}], roots=[root]) == [str(photos)]
+    assert A.locate("card", [{"path": "DJI_0000.JPG", "size": size + 1}, {"path": "../../etc/passwd", "size": 1}],
+                    roots=[root]) == []
+    # a whole drive dropped: photos are in a sub-folder; a single dropped photo selects its folder
+    drive = root / "mnt" / "DJI_SD"
+    (drive / "DCIM" / "100MEDIA").mkdir(parents=True)
+    (drive / "DCIM" / "100MEDIA" / "DJI_0001.JPG").write_bytes(b"x" * 321)
+    assert A.locate("DJI_SD", [{"path": "DCIM/100MEDIA/DJI_0001.JPG", "size": 321}], roots=[root / "mnt"]) == [str(drive)]
+    assert A.locate("DJI_SD", [{"path": "DCIM/100MEDIA/DJI_0001.JPG", "size": 321}], roots=[drive]) == [str(drive)]
+    assert A.locate("DJI_0001.JPG", [{"path": "DJI_0001.JPG", "size": 321}], is_dir=False, roots=[root / "mnt"]) == \
+        [str(drive / "DCIM" / "100MEDIA")]
+    assert A.locate("nowhere", [], roots=[root]) == [] and A.locate("..", [], roots=[root]) == []
+    code, r = studio["call"]("/api/locate", {"name": "card", "samples": [{"path": "DJI_0000.JPG", "size": size}],
+                                             "near": str(root)})
+    assert code == 200 and r["paths"][0] == str(photos)
 
 
 def test_sar_job_and_search_report(studio):

@@ -26,10 +26,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .site.server import LocalHandler, bind, guarded, project_get, project_post, run
-from .ui import APP_NAME, LOGO, icon, page, theme_button
+from .ui import APP_NAME, ICON_SVG, LOGO, icon, page, theme_button
 
 SECTIONS = {
-    "sar": {"title": "SAR", "long": "Search and rescue", "main": "report.html", "icon": "target", "color": "#e5484d",
+    "sar": {"title": "SAR", "long": "Search and rescue", "main": "report.html", "icon": "target", "color": "#12a150",
             "blurb": "Scan every photo for a missing person or a target of interest. Hits are ranked, placed on "
                      "the map, and written up as a search report with coordinates for ground teams.",
             "new": "New search"},
@@ -39,7 +39,7 @@ SECTIONS = {
                         "access points and perimeter as a report for the client.",
                "new": "New survey"},
     "art": {"title": "Art", "long": "Stock and portfolio picks", "main": "gallery.html", "icon": "image",
-            "color": "#12a150",
+            "color": "#e5484d",
             "blurb": "Rank a card of photos for stock libraries, prints or a portfolio, group near-duplicates, and "
                      "auto-edit the best frames.",
             "new": "New selection"},
@@ -233,6 +233,69 @@ def list_dir(path: str | None) -> dict:
             "places": [{"name": n, "path": str(q)} for n, q in places if q.is_dir()]}
 
 
+def search_roots(near: str | None = None) -> list[Path]:
+    home = Path.home()
+    user = os.environ.get("USER") or home.name
+    roots = [Path(near) if near else None, Path("/media") / user, Path("/run/media") / user, Path("/media"),
+             Path("/mnt"), Path("/Volumes"), home]
+    out = []
+    for r in roots:
+        if r and r.is_dir() and r.resolve() not in out:
+            out.append(r.resolve())
+    return out
+
+
+def locate(name: str, samples: list, is_dir: bool = True, near: str | None = None, roots=None,
+           budget_s: float = 5.0) -> list[str]:
+    """Find on disk the folder that was dropped onto the page.
+
+    A browser will not say where a dropped folder lives, only its name and
+    what is inside. So look for a folder of that name which really contains
+    one of those files at the same size (for a dropped file: the folder that
+    holds it). Cards and external drives are searched first, then the home
+    folder. Returns the matching paths, best first.
+    """
+    name = Path(str(name)).name
+    want = [(str(s.get("path") or "").lstrip("/"), s.get("size")) for s in samples or [] if isinstance(s, dict)][:6]
+    if not name or name in (".", ".."):
+        return []
+
+    def matches(d: Path) -> bool:
+        if not is_dir:
+            f = d / name
+            return f.is_file() and (not want or f.stat().st_size == want[0][1])
+        if not want:
+            return True
+        for rel, size in want:
+            f = (d / rel).resolve()
+            if d.resolve() in f.parents and f.is_file() and f.stat().st_size == size:
+                return True
+        return False
+
+    found, seen, t0 = [], set(), time.time()
+    for root in roots or search_roots(near):
+        level = [root]
+        for _depth in range(7):
+            nxt = []
+            for d in level:
+                if time.time() - t0 > budget_s or len(found) >= 5:
+                    return found
+                try:
+                    key = d.resolve()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    hit = (d.name == name or (is_dir and d == root and root.name == name)) if is_dir else True
+                    if hit and matches(d) and str(key) not in found:
+                        found.append(str(key))
+                    nxt += [Path(e.path) for e in os.scandir(d)
+                            if not e.name.startswith(".") and e.is_dir(follow_symlinks=False)]
+                except OSError:
+                    continue
+            level = nxt
+    return found
+
+
 # ---------------------------------------------------------------------------
 # pages
 # ---------------------------------------------------------------------------
@@ -248,6 +311,7 @@ CSS = r"""
 .sect-h .top{display:flex;align-items:center;gap:10px}
 .sect-h .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:#fff;background:var(--c)}
 .sect-h h2{margin:0;font-size:19px;letter-spacing:-.015em}
+.sect .btn.primary{background:var(--c);box-shadow:0 6px 18px -8px var(--c)}
 .sect-h .long{color:var(--muted);font-size:12.5px}
 .sect-h p{color:var(--ink-2);font-size:13px;margin:12px 0 14px;min-height:76px}
 .sect-h .acts{display:flex;gap:8px;flex-wrap:wrap}
@@ -272,6 +336,12 @@ dialog::backdrop{background:rgba(5,6,8,.6);backdrop-filter:blur(3px)}
   background:var(--surface);color:var(--ink);font:500 13.5px var(--font)}
 .fld .hint{color:var(--muted);font-size:12px;margin-top:4px}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:13.5px}.check input{margin-top:3px}
+.dropzone{display:flex;gap:12px;align-items:center;padding:14px 16px;margin-bottom:8px;border:1.5px dashed var(--line-2);
+  border-radius:10px;color:var(--muted);transition:border-color .15s,background .15s}
+.dropzone b{display:block;color:var(--ink);font-weight:600}.dropzone span{font-size:12.5px}
+.dropzone.ok span{color:var(--good)}.dropzone.bad span{color:var(--warn)}
+.dragging .dropzone,.sect.over{border-color:var(--accent);background:var(--accent-soft)}
+.sect.over{outline:2px dashed var(--accent);outline-offset:3px}
 .picker{border:1px solid var(--line-2);border-radius:10px;overflow:hidden}
 .picker .places{display:flex;gap:6px;padding:8px;background:var(--surface-2);border-bottom:1px solid var(--line);flex-wrap:wrap;align-items:center}
 .picker .path{font:500 12px var(--mono);padding:8px 10px;border-bottom:1px solid var(--line);word-break:break-all}
@@ -311,13 +381,13 @@ document.addEventListener("click", async ev => {
   const dm = ev.target.closest("[data-demo]"); if (dm) return begin("survey", {demo: true});
   const row = ev.target.closest(".picker [data-path]"); if (row) return browse(row.dataset.path);
 });
-function openNew(k) {
-  cur = k;
+function openNew(k, viaDrop) {
+  cur = k; $("#drop").className = "dropzone"; $("#drop-msg").textContent = "from your file manager, or browse to it below.";
   $("#dlg-title").innerHTML = `<span class="sect-ico" style="color:${S[k].color}">${S[k].icon}</span>${S[k].new}`;
   document.querySelectorAll("[data-only]").forEach(e => e.hidden = !e.dataset.only.split(" ").includes(k));
   $("#f-name").value = ""; $("#f-colors").value = ""; $("#go").disabled = true; $("#new-err").textContent = "";
   $("#l-colors").textContent = k === "sar" ? "Clothing or equipment colours to look for (optional)" : "Also look for these colours (optional)";
-  $("#dlg").showModal(); browse(here);
+  $("#dlg").showModal(); if (!viaDrop) browse(here);
 }
 async function browse(path) {
   const d = await api("/api/ls?path=" + encodeURIComponent(path || "")); here = d.path;
@@ -345,6 +415,47 @@ async function begin(section, opts) {
     else { $("#run-title").textContent = "Could not finish"; $("#run-err").textContent = s.error; $("#run-close").hidden = false; home(); }
   }, 700);
 }
+// ---- drag and drop: a folder, a drive, or photos, onto a section card or the New dialog
+function entryFiles(entry, prefix, out, done) {            // first few files under a dropped folder, with sizes
+  if (out.length >= 4 || out.depth > 40) return done();
+  out.depth = (out.depth || 0) + 1;
+  entry.createReader().readEntries(list => {
+    const files = list.filter(e => e.isFile && !e.name.startsWith(".")), dirs = list.filter(e => e.isDirectory && !e.name.startsWith("."));
+    const jpg = files.filter(f => /\.jpe?g$/i.test(f.name));
+    let wait = 1; const step = () => { if (--wait === 0) nextDir(0); };
+    const nextDir = i => (i >= dirs.length || out.length >= 4) ? done() : entryFiles(dirs[i], prefix + dirs[i].name + "/", out, () => nextDir(i + 1));
+    for (const f of (jpg.length ? jpg : files).slice(0, 3)) { wait++; f.file(x => { out.push({path: prefix + f.name, size: x.size}); step(); }, step); }
+    step();
+  }, done);
+}
+async function dropped(dt) {
+  const msg = (t, cls) => { $("#drop-msg").textContent = t; $("#drop").className = "dropzone " + (cls || ""); };
+  // some browsers hand over the real address of what was dragged
+  const uri = (dt.getData("text/uri-list") || dt.getData("text/x-moz-url") || "").split(/\r?\n/).find(u => u.startsWith("file://"));
+  const item = [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).find(Boolean);
+  if (uri) { let p = decodeURIComponent(new URL(uri).pathname); if (item && item.isFile) p = p.replace(/\/[^/]*$/, "") || "/";
+    await browse(p); if (here === p) return msg("Selected " + p, "ok"); }
+  if (!item) return msg("That was not a folder. Drag a folder from your file manager, or browse below.", "bad");
+  msg("Looking for “" + item.name + "” on this computer…");
+  const samples = [];
+  if (item.isDirectory) await new Promise(r => entryFiles(item, "", samples, r));
+  else await new Promise(r => item.file(f => { samples.push({path: item.name, size: f.size}); r(); }, r));
+  const d = await api("/api/locate", {name: item.name, samples, dir: item.isDirectory, near: here});
+  if (!d.paths.length) return msg("Could not find “" + item.name + "” automatically. Browse to it below.", "bad");
+  await browse(d.paths[0]);
+  msg((d.paths.length > 1 ? "Found more than one match; using " : "Selected ") + d.paths[0] + (d.paths.length > 1 ? ". Check it is the right one." : ""), d.paths.length > 1 ? "bad" : "ok");
+}
+let dragN = 0;
+addEventListener("dragenter", ev => { if ([...ev.dataTransfer.types].includes("Files")) { dragN++; document.body.classList.add("dragging"); } });
+addEventListener("dragleave", () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove("dragging"); document.querySelectorAll(".sect.over").forEach(e => e.classList.remove("over")); } });
+addEventListener("dragover", ev => { ev.preventDefault(); if ($("#dlg").open) return;
+  const s = ev.target.closest && ev.target.closest(".sect"); document.querySelectorAll(".sect").forEach(e => e.classList.toggle("over", e === s)); });
+addEventListener("drop", async ev => { ev.preventDefault(); dragN = 0; document.body.classList.remove("dragging");
+  const sect = ev.target.closest && ev.target.closest(".sect"); document.querySelectorAll(".sect.over").forEach(e => e.classList.remove("over"));
+  if ($("#run").open) return;
+  const dt = ev.dataTransfer;
+  if (!$("#dlg").open) { if (!sect) return toast("Drop onto SAR, Survey or Art"); openNew(sect.dataset.k, true); }
+  try { await dropped(dt); } catch (e) { $("#drop-msg").textContent = e.message; } });
 $("#run-close").addEventListener("click", () => $("#run").close());
 $("#cancel").addEventListener("click", () => $("#dlg").close());
 $("#quit").addEventListener("click", async () => { if (!confirm("Stop ISR Studio? Jobs are saved; start it again any time.")) return;
@@ -357,18 +468,19 @@ def home_html() -> str:
     cards = []
     for k, s in SECTIONS.items():
         demo = '<button class="btn" data-demo="1">Try the demo</button>' if k == "survey" else ""
-        cards.append(f'''<section class="sect" style="--c:{s["color"]}"><div class="sect-h"><div class="top">
+        cards.append(f'''<section class="sect" data-k="{k}" style="--c:{s["color"]}"><div class="sect-h"><div class="top">
 <div class="ico">{icon(s["icon"], 20)}</div><div><h2>{s["title"]}</h2><div class="long">{s["long"]}</div></div></div>
 <p>{s["blurb"]}</p><div class="acts"><button class="btn primary" data-new="{k}">{icon("plus")}{s["new"]}</button>{demo}</div></div>
 <div class="jobs" id="jobs-{k}"></div></section>''')
     body = f'''<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME}</div></div><div class="spacer"></div>
 <button class="btn ghost" id="quit" title="Stop the app">{icon("power")}<span class="lbl">Quit</span></button>{theme_button()}</header>
 <div class="wrap"><div class="hero"><h1>{APP_NAME}</h1>
-<p>Turn a card of drone photos into something you can act on. Everything runs on this computer; nothing is uploaded.</p></div>
+<p>Turn a card of drone photos into something you can act on. Press New, or drag a folder or drive onto a section. Everything runs on this computer; nothing is uploaded.</p></div>
 <div class="cols">{"".join(cards)}</div>
 <p class="foot">Jobs are kept in <span class="mono" id="ws"></span>. Each job folder holds its report and exports and can be copied elsewhere.</p></div>
 <dialog id="dlg"><div class="dlg-h" id="dlg-title"></div><div class="dlg-b">
 <div class="fld"><label>Folder of photos (the SD card's DCIM folder, or any folder of JPEGs)</label>
+<div class="dropzone" id="drop">__DROP__<div><b>Drag the folder or drive here</b><span id="drop-msg">from your file manager, or browse to it below.</span></div></div>
 <div class="picker"><div class="places" id="places"></div><div class="path" id="path"></div><div class="list" id="list"></div>
 <div class="count" id="count"></div></div></div>
 <div class="fld"><label for="f-name">Name (optional)</label><input type="text" id="f-name" placeholder="Defaults to the folder name"></div>
@@ -382,10 +494,11 @@ def home_html() -> str:
 <dialog id="run"><div class="dlg-h"><div class="spin" id="run-spin"></div><span id="run-title"></span></div>
 <div class="dlg-b"><div id="log"></div><div class="err" id="run-err"></div></div>
 <div class="dlg-f"><button class="btn" id="run-close" hidden>Close</button></div></dialog>'''
+    body = body.replace("__DROP__", icon("folder", 26))
     data = {"sections": {k: {"title": s["title"], "new": s["new"], "color": s["color"], "icon": icon(s["icon"], 18)}
                          for k, s in SECTIONS.items()},
             "trash": icon("trash", 15), "folder": icon("folder", 16), "up": icon("chevron-left", 16)}
-    return page(APP_NAME, body, CSS + ".sect-ico{display:inline-flex}", JS, data)
+    return page(APP_NAME, body, CSS + ".sect-ico{display:inline-flex}", JS, data, default_theme="dark")
 
 
 # A small bar added to the SAR and Art pages when they are opened inside the app.
@@ -464,6 +577,9 @@ class AppHandler(LocalHandler):
                 return self.json({"task": st.start(body["section"], body)})
             except ValueError as e:
                 return self.json({"error": str(e)}, 400)
+        if path == "/api/locate":
+            return self.json({"paths": locate(body.get("name"), body.get("samples"), body.get("dir", True),
+                                              body.get("near"))})
         if path == "/api/delete":
             return self.json({"ok": True}) if st.delete(body.get("section"), body.get("job")) else \
                 self.json({"error": "not found"}, 404)
@@ -497,13 +613,6 @@ def serve(workspace: Path, port: int = 8765, open_browser: bool = True) -> None:
     srv = make_app(workspace, port)
     print(f"Jobs are kept in {Path(workspace).expanduser()}")
     run(srv, APP_NAME, open_browser)
-
-
-ICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="g" x1="0" y1="0" x2="1" '
-            'y2="1"><stop offset="0" stop-color="#5b5bf7"/><stop offset="1" stop-color="#22b8cf"/></linearGradient></defs>'
-            '<rect width="32" height="32" rx="9" fill="url(#g)"/><g fill="none" stroke="#fff" stroke-width="2" '
-            'stroke-linecap="round"><circle cx="9.5" cy="9.5" r="3"/><circle cx="22.5" cy="9.5" r="3"/>'
-            '<circle cx="9.5" cy="22.5" r="3"/><circle cx="22.5" cy="22.5" r="3"/><path d="M12 12l8 8M20 12l-8 8"/></g></svg>')
 
 
 def install_launcher(workspace: Path | None = None) -> Path:

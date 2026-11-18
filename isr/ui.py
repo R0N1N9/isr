@@ -8,6 +8,7 @@ follow the system setting, with a toggle that remembers the choice.
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 
 APP_NAME = "ISR Studio"
 
@@ -43,14 +44,14 @@ def icon(name: str, size: int = 16, cls: str = "") -> str:
             f'aria-hidden="true">{ICONS[name]}</svg>')
 
 
-LOGO = ('<svg class="logo" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">'
-        '<defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/>'
-        '<stop offset="1" stop-color="var(--accent-2)"/></linearGradient></defs>'
-        '<rect width="32" height="32" rx="9" fill="url(#lg)"/>'
-        '<g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">'
-        '<circle cx="9.5" cy="9.5" r="3"/><circle cx="22.5" cy="9.5" r="3"/>'
-        '<circle cx="9.5" cy="22.5" r="3"/><circle cx="22.5" cy="22.5" r="3"/>'
-        '<path d="M12 12l8 8M20 12l-8 8"/></g></svg>')
+# The mark: a quadcopter seen from above, four rotors on crossed arms, on a dark plate.
+LOGO_ART = ('<rect x=".5" y=".5" width="31" height="31" rx="8.5" fill="#0d1218" stroke="#2c3743"/>'
+            '<g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">'
+            '<circle cx="9.5" cy="9.5" r="3"/><circle cx="22.5" cy="9.5" r="3"/>'
+            '<circle cx="9.5" cy="22.5" r="3"/><circle cx="22.5" cy="22.5" r="3"/>'
+            '<path d="M12 12l8 8M20 12l-8 8"/></g><circle cx="16" cy="16" r="2.3" fill="#f5a524"/>')
+LOGO = f'<svg class="logo" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">{LOGO_ART}</svg>'
+ICON_SVG = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">{LOGO_ART}</svg>'
 
 CSS = r"""
 :root{
@@ -97,8 +98,8 @@ a{color:inherit}
   background:var(--glass);backdrop-filter:saturate(1.6) blur(16px);-webkit-backdrop-filter:saturate(1.6) blur(16px);
   border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
-.brand-name{font-weight:650;letter-spacing:-.01em;font-size:15px;white-space:nowrap}
-.brand-name span{color:var(--muted);font-weight:500}
+.brand-name{font-weight:700;letter-spacing:.09em;text-transform:uppercase;font-size:13px;white-space:nowrap}
+.brand-name span{color:var(--muted);font-weight:600}
 .crumb{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .topbar .spacer{flex:1}
 @media (max-width:700px){.topbar{padding:10px 16px;gap:8px}.crumb,.brand-name span,.topbar .lbl{display:none}
@@ -228,6 +229,7 @@ def page(title: str, body: str, css: str = "", js: str = "", data: dict | None =
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
+<link rel="icon" href="data:image/svg+xml,{quote(ICON_SVG)}">
 <script>{THEME_JS}</script>
 <style>{CSS}{css}</style>
 </head>

@@ -22,7 +22,8 @@ isrstudio
 
 That opens ISR Studio in your browser (it is a page served from your own machine at `127.0.0.1`).
 Pick a section, press **New**, choose the folder of photos (the card's `DCIM` folder, or any folder
-of JPEGs), and wait while it works. Each job then opens in its own page:
+of JPEGs), and wait while it works. You can also drag a folder or an external drive from your file
+manager onto a section, or onto the New dialog, instead of browsing to it. Each job then opens in its own page:
 
 * **SAR** opens the review page. Confirm or dismiss candidates, then **Search report** writes a
   printable report of the confirmed finds.
