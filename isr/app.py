@@ -122,12 +122,12 @@ class Studio:
 
     def start(self, section: str, opts: dict) -> str:
         src = Path(str(opts.get("source") or "")).expanduser()
-        demo = bool(opts.get("demo")) and section == "survey"
+        demo = bool(opts.get("demo"))
         if not demo and not src.is_dir():
             raise ValueError("Choose a folder of photos first.")
         if section in ("sar", "survey") and not demo:
             _triage_cfg(opts)  # reject a misspelt colour now, not halfway through the job
-        name = str(opts.get("name") or "").strip() or ("Demo property" if demo else src.name) or "Job"
+        name = str(opts.get("name") or "").strip() or (DEMO_NAMES[section] if demo else src.name) or "Job"
         out = self.new_dir(section, name)
         tid = uuid.uuid4().hex[:10]
         task = self.tasks[tid] = {"state": "running", "log": [], "url": None, "error": None, "section": section,
@@ -138,10 +138,18 @@ class Studio:
             del task["log"][:-200]
 
         def work():
+            nonlocal src
             try:
+                if demo and section != "survey":  # paint the example photos once, outside the job folder
+                    from . import demos
+
+                    src = self.ws / "_demo_photos" / section
+                    if not any(src.glob("*.JPG")):
+                        log("Painting a made-up set of photos to work on...")
+                        (demos.write_sar_demo if section == "sar" else demos.write_art_demo)(src)
                 RUNNERS[section](src, out, name, opts, log)
                 (out / "job.json").write_text(json.dumps({
-                    "name": name, "section": section, "source": "" if demo else str(src),
+                    "name": name, "section": section, "source": "" if demo and section == "survey" else str(src),
                     "created": time.strftime("%Y-%m-%d %H:%M:%S")}))
                 task.update(state="done", url=f"/{section}/{out.name}/")
             except BaseException as e:  # SystemExit is how the pipelines report "no photos found"
@@ -201,6 +209,7 @@ def run_art(src, out, name, opts, log):
     write_gallery(data, out)
 
 
+DEMO_NAMES = {"sar": "Demo search", "survey": "Demo property", "art": "Demo selection"}
 RUNNERS = {"sar": run_sar, "survey": run_survey_job, "art": run_art}
 
 
@@ -378,7 +387,7 @@ document.addEventListener("click", async ev => {
   if (del) { ev.preventDefault(); if (!confirm(`Delete "${del.dataset.name}" and everything in its folder? This cannot be undone.`)) return;
     const [section, job] = del.dataset.del.split("/"); await api("/api/delete", {section, job}); toast("Deleted"); return home(); }
   const nw = ev.target.closest("[data-new]"); if (nw) return openNew(nw.dataset.new);
-  const dm = ev.target.closest("[data-demo]"); if (dm) return begin("survey", {demo: true});
+  const dm = ev.target.closest("[data-demo]"); if (dm) return begin(dm.dataset.demo, {demo: true, top: 6});
   const row = ev.target.closest(".picker [data-path]"); if (row) return browse(row.dataset.path);
 });
 function openNew(k, viaDrop) {
@@ -467,7 +476,7 @@ home();
 def home_html() -> str:
     cards = []
     for k, s in SECTIONS.items():
-        demo = '<button class="btn" data-demo="1">Try the demo</button>' if k == "survey" else ""
+        demo = f'<button class="btn" data-demo="{k}">Try the demo</button>'
         cards.append(f'''<section class="sect" data-k="{k}" style="--c:{s["color"]}"><div class="sect-h"><div class="top">
 <div class="ico">{icon(s["icon"], 20)}</div><div><h2>{s["title"]}</h2><div class="long">{s["long"]}</div></div></div>
 <p>{s["blurb"]}</p><div class="acts"><button class="btn primary" data-new="{k}">{icon("plus")}{s["new"]}</button>{demo}</div></div>

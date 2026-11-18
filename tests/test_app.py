@@ -140,6 +140,31 @@ def test_art_job(studio):
     assert "top 2 suggested" in studio["call"]("/api/home")[1]["jobs"]["art"][0]["summary"]
 
 
+def test_sar_demo_finds_all_three_people(studio):
+    s = studio["run"]("sar", demo=True)
+    assert s["state"] == "done" and s["url"] == "/sar/demo-search/"
+    job = studio["root"] / "ws" / "sar" / "demo-search"
+    data = json.loads((job / "results.json").read_text())
+    assert data["summary"]["photos"] == 6 and data["summary"]["photos_geolocatable"] == 6
+    hit = {p["rel"]: [d["label"] for d in p["detections"]] for p in data["photos"] if p["detections"]}
+    for photo, colour in (("DJI_0002.JPG", "red"), ("DJI_0004.JPG", "orange"), ("DJI_0005.JPG", "blue")):
+        assert any(colour in label for label in hit.get(photo, [])), (photo, hit)
+    assert all(d["lat"] is not None for p in data["photos"] for d in p["detections"])
+
+
+def test_art_demo_ranks_keepers_above_rejects(studio):
+    s = studio["run"]("art", demo=True, top=6)
+    assert s["state"] == "done" and s["url"] == "/art/demo-selection/"
+    data = json.loads((studio["root"] / "ws" / "art" / "demo-selection" / "studio.json").read_text())
+    score = {p["name"].split("_", 2)[2].rsplit(".", 1)[0]: p["score"] for p in data["photos"]}
+    assert len(score) == 10
+    for bad in ("lake_blurred", "lake_overexposed", "lake_hazy"):
+        assert score[bad] < score["lake"], (bad, score)
+    assert data["summary"]["groups"] < data["summary"]["photos"]  # the two coastline frames are one moment
+    assert (studio["root"] / "ws" / "_demo_photos" / "art").is_dir()
+    assert studio["call"]("/api/home")[1]["jobs"]["art"][0]["name"] == "Demo selection"
+
+
 def test_errors_and_safety(studio):
     call = studio["call"]
     (studio["root"] / "empty").mkdir(exist_ok=True)

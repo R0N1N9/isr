@@ -30,6 +30,10 @@ manager onto a section, or onto the New dialog, instead of browsing to it. Each 
 * **Survey** opens the plan editor. Trace the site, then **Generate report**.
 * **Art** opens the gallery. Pick favourites, compare originals with the edits.
 
+No photos to hand? Each section has **Try the demo**, which paints a made-up set and runs the real
+tools on it: a six-frame search leg with three people to find (SAR), a property with a hidden side
+door (Survey), and a flight's worth of keepers, a burst and rejects to rank (Art).
+
 Jobs are kept in `~/ISR-Studio/<section>/<job>/` and listed on the home screen, so you can reopen
 or delete them. Each job folder holds its report and exports and can be copied to a USB stick.
 **Quit** on the home screen stops the app.
