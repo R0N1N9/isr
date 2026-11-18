@@ -15,7 +15,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape as x
 
 from ..geo import from_local
-from ..ui import LOGO, icon, page, theme_button
+from ..ui import icon, page, theme_button
 from . import model as M
 from .analysis import Analysis
 
@@ -305,11 +305,11 @@ def build_html(model: dict, an: Analysis) -> str:
     H = lambda t: f'<h2><span class="n">{next(sec):02d}</span>{t}</h2>'  # noqa: E731
     b = []
 
-    b.append(f'<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">ISR <span>Site assessment</span></div></div>'
+    b.append(f'<header class="topbar"><div class="brand">{M.BRAND_LOGO}<div class="brand-name">{M.BRAND} <span>{M.APP}</span></div></div>'
              f'<div class="crumb">{h(model["name"])}</div><div class="spacer"></div>'
              f'<button class="btn" onclick="print()">{icon("download")}<span class="lbl">Print / save PDF</span></button>'
              f'{theme_button()}</header><div class="wrap">')
-    brand = h(model["company"]) if model.get("company") else "Site security assessment"
+    brand = h(model.get("company") or M.BRAND)
     b.append(f'<div class="cover"><div class="label">{brand}</div><h1>{h(model["name"])}</h1>'
              f'<div class="sub">Site security assessment: sightlines, blind spots, camera placement, access points '
              f'and perimeter</div><dl class="front">')
@@ -546,7 +546,8 @@ for being invisible from both the street and windows (2), and for unobserved gro
     b.append(f'<p class="foot">{"Prepared by " + h(by) + (" for " + h(model["client"]) if model.get("client") else "") + ". " if by else ""}'
              'This report describes what could be observed and measured from a photographic survey on the date shown. '
              'It identifies where the site is exposed and how that could be reduced; it is not a guarantee against '
-             'intrusion, and the recommendations should be confirmed on site before work is ordered.</p></div>')
+             'intrusion, and the recommendations should be confirmed on site before work is ordered. '
+             f'Produced with {M.BRAND} {M.APP}.</p></div>')
     return page(f"Site assessment: {h(model['name'])}", "".join(b), CSS, "", None, default_theme="light")
 
 

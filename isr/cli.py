@@ -263,7 +263,7 @@ def cmd_enhance(a) -> int:
 def _project(a) -> Path | None:
     d = Path(a.project).expanduser()
     if not (d / "site.json").exists():
-        print(f"error: {d} is not a site project (no site.json). Create one with: isr site survey PHOTOS -o {d}",
+        print(f"error: {d} is not a survey project (no site.json). Create one with: survey new PHOTOS -o {d}",
               file=sys.stderr)
         return None
     return d
@@ -272,7 +272,7 @@ def _project(a) -> Path | None:
 def cmd_site(a) -> int:
     from .site import model as SM
 
-    if a.action == "survey":
+    if a.action in ("new", "survey"):
         from .site.survey import run_survey
 
         src = Path(a.source).expanduser()
@@ -292,7 +292,7 @@ def cmd_site(a) -> int:
                   "    walls meet the ground. One photo taken straight down from above the site avoids this.")
         print(f"Project: {out}")
         if a.no_edit:
-            print(f"Next: isr site edit {out}")
+            print(f"Next: survey edit {out}")
             return 0
         a.project = str(out)
         a.action = "edit"
@@ -308,7 +308,7 @@ def cmd_site(a) -> int:
         if a.open:
             webbrowser.open(report.resolve().as_uri())
         if not a.edit:
-            print(f"Open it in the editor with: isr site edit {out}")
+            print(f"Open it in the editor with: survey edit {out}")
             return 0
         a.project, a.no_browser = str(out), False
 
@@ -449,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     si = sub.add_parser("site", help="site security assessment: survey photos -> site plan -> report")
     ss = si.add_subparsers(dest="action", required=True)
-    sv = ss.add_parser("survey", help="read hand-flown drone and walk-round photos, build the base map and open the editor",
+    sv = ss.add_parser("new", aliases=["survey"], help="read hand-flown drone and walk-round photos, build the base map and open the editor",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sv.add_argument("source", help="folder of photos (searched recursively)")
     sv.add_argument("-o", "--output", help="project folder (default ./site_<timestamp>); re-run to add photos")
@@ -482,6 +482,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     a = build_parser().parse_args(argv)
     return a.func(a) or 0
+
+
+def survey_main(argv=None) -> int:
+    """The ``survey`` command: Ronin Sec Survey on its own, the same as ``isr site ...``."""
+    return main(["site", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":

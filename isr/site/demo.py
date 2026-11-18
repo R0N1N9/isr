@@ -268,7 +268,7 @@ def build_demo(out: Path, log=print) -> dict:
     model = run_survey(out / "source_photos", out, name="Demo property (synthetic)", log=log)
     model["features"] = demo_features()
     model["assessor"] = "A. Assessor"
-    model["company"] = "Example Security Surveys"
+    model["company"] = M.BRAND
     model["client"] = "Example client"
     model["address"] = "1 Example Lane (synthetic demo site)"
     model["reference"] = "DEMO-001"

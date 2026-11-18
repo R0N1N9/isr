@@ -99,6 +99,17 @@ def test_perimeter_gap_found():
     assert per["gaps"][0]["declared"] == "Pedestrian gate 1"
 
 
+def test_survey_command_and_default_branding(tmp_path, capsys):
+    from isr.cli import survey_main
+
+    assert M.new_model("x", (0, 0), (0, 0, 1, 1))["company"] == "Ronin Sec"
+    demo.write_obliques(tmp_path / "shots")
+    assert survey_main(["new", str(tmp_path / "shots"), "-o", str(tmp_path / "p"), "--no-edit"]) == 0
+    assert survey_main(["report", str(tmp_path / "p")]) == 0
+    assert "Ronin Sec" in (tmp_path / "p" / "report.html").read_text()
+    assert survey_main(["report", str(tmp_path / "missing")]) == 2
+
+
 def test_empty_and_partial_models_do_not_crash():
     for feats in ([], [LOT], [{"kind": "access", "subtype": "door", "pts": [[0, 0]]}],
                   [{"kind": "street", "pts": [[-20, -25], [20, -25]]}],
@@ -243,7 +254,7 @@ def test_report_and_exports(project):
     html = report.read_text()
     assert "<script src" not in html and "http://" not in html.replace("http://www.w3.org", "")
     for needle in ("Priority findings", "Side door", "Camera placement", "basemap.jpg", "report_assets/blind.png",
-                   "Prepared for", "Example client", "DEMO-001", "Open and unmarked", ">G1<"):
+                   "Prepared for", "Example client", "DEMO-001", "Ronin Sec", "Open and unmarked", ">G1<"):
         assert needle in html
     gj = json.loads((out / "site.geojson").read_text())
     kinds = {f["properties"]["kind"] for f in gj["features"]}
@@ -294,7 +305,7 @@ def test_editor_server(project):
 
     try:
         code, page = call("/")
-        assert code == 200 and b"Site editor" in page
+        assert code == 200 and b"Ronin Sec" in page
         code, body = call("/api/site")
         site = json.loads(body)
         assert code == 200 and len(site["features"]) == len(model["features"])

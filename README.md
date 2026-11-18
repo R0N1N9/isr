@@ -14,7 +14,7 @@ Offline field and studio tools for a Mavic 3 + DJI RC (the site assessment also 
 4. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
    vibrance, horizon straightening, sharpening) written to new files with all metadata kept.
 
-5. **`isr site`**: a site security assessment. Walk or fly a property, drop the photos in, trace the
+5. **`survey`** (Ronin Sec Survey): a site security assessment. Walk or fly a property, drop the photos in, trace the
    plan over the stitched aerial image, and get a report of sightlines, blind spots, camera
    placement and access points.
 
@@ -333,14 +333,16 @@ from the DNG in Lightroom or Capture One. Studio's ranking is still the fast way
 
 ---
 
-## Site security assessment
+## Survey: site security assessment
+
+**Ronin Sec Survey.** Installed as its own command, `survey` (the same thing as `isr site`).
 
 For a property you own or are responsible for: where can someone approach unseen, which doors and
 gates are unwatched, and where would cameras do the most good.
 
 ```bash
-isr site demo --edit            # a made-up property, to see how it works
-isr site survey E:\DCIM -o my_site --name "12 Mill Lane"
+survey demo --edit               # a made-up property, to see how it works
+survey new E:\DCIM -o my_site --name "12 Mill Lane"
 ```
 
 ![Site editor](docs/site_editor.jpg)
@@ -367,7 +369,7 @@ photo positions as a guide.
 
 ### 2. Draw the plan
 
-`isr site survey` builds the base map and opens the editor in your browser (a page served from
+`survey new` builds the base map and opens the editor in your browser (a page served from
 your own machine at `127.0.0.1`; nothing is uploaded). Trace what you see:
 
 | Tool | Key | Draw |
@@ -385,12 +387,12 @@ Double-click or `Enter` finishes a shape, `Esc` cancels, `Delete` removes the se
 to `site.json` and the findings on the right update as you draw, so you can try things: lower a
 hedge, move a camera, add a recommended camera to the plan and see what is still unseen.
 
-Re-run `isr site survey` on the same project folder to add photos; the plan is kept.
-`isr site edit my_site` reopens it later.
+Re-run `survey new` on the same project folder to add photos; the plan is kept.
+`survey edit my_site` reopens it later.
 
 ### 3. Report
 
-**Generate report** (or `isr site report my_site --open`) writes into the project folder:
+**Generate report** (or `survey report my_site --open`) writes into the project folder:
 
 | File | Use |
 |---|---|
@@ -401,8 +403,9 @@ Re-run `isr site survey` on the same project folder to add photos; the plan is k
 
 ![Site report](docs/site_report.jpg)
 
-Fill in the client, site address, your company, name and a job reference under **Site** in the
-editor; they head the report. Notes typed against any item (a damaged fence panel, a gate that does
+Reports are headed **Ronin Sec** by default. Fill in the client, site address, your name and a job
+reference under **Site** in the editor (and change "Prepared by" there if a job goes out under
+another name). Notes typed against any item (a damaged fence panel, a gate that does
 not latch) are printed beside it.
 
 The report covers:
@@ -439,7 +442,7 @@ account: a camera at 2.7 m sees over a 1.2 m garden wall, a passer-by does not s
 
 ```bash
 isr info photo.JPG       # show what the tools read from a photo (GPS, altitude, gimbal, scale)
-isr site survey --help
+survey new --help
 isr triage --help
 isr plan grid --help
 ```

@@ -32,6 +32,15 @@ from pathlib import Path
 
 VERSION = 1
 
+# Branding of the editor and the report. "Prepared by" on a report defaults to BRAND and can be changed per project.
+BRAND = "Ronin Sec"
+APP = "Survey"
+BRAND_LOGO = ('<svg class="logo" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">'
+              '<rect width="32" height="32" rx="9" fill="#0d1117"/>'
+              '<path d="M11 24V8h6.2a4.6 4.6 0 0 1 1.5 8.95L22.5 24M11 17h6.2" fill="none" stroke="#fff" '
+              'stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'
+              '<circle cx="23.5" cy="9" r="2.2" fill="#e5484d"/></svg>')
+
 DEFAULT_SETTINGS = {
     "cell_m": 0.5,  # analysis grid
     "camera_height_m": 2.7,  # mounting height for recommended cameras
@@ -70,7 +79,7 @@ DEFAULT_HEIGHT = {"building": 6.0, "vegetation": 3.0}
 
 
 def new_model(name: str, origin: tuple[float, float], bounds, basemap=None, photos=None) -> dict:
-    return {"version": VERSION, "name": name, "assessor": "", "notes": "",
+    return {"version": VERSION, "name": name, "assessor": "", "company": BRAND, "notes": "",
             "origin": {"lat": origin[0], "lon": origin[1]}, "bounds": [round(float(b), 2) for b in bounds],
             "basemap": basemap, "settings": dict(DEFAULT_SETTINGS), "features": [], "photos": photos or []}
 

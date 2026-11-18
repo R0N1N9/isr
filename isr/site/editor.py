@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from ..ui import LOGO, page, theme_button
+from ..ui import page, theme_button
 from . import model as M
 
 CSS = r"""
@@ -87,7 +87,7 @@ body{display:flex;flex-direction:column;overflow:hidden}
 
 BODY = """
 <header class="topbar">
-  <div class="brand">__LOGO__<div class="brand-name">ISR <span>Site editor</span></div></div>
+  <div class="brand">__LOGO__<div class="brand-name">__BRAND__ <span>__APP__</span></div></div>
   <input id="name" aria-label="Site name" spellcheck="false">
   <div class="spacer"></div>
   <span id="status" role="status"></span>
@@ -475,7 +475,7 @@ function renderSettings() {
 }
 $("#p-settings").addEventListener("change", ev => { const t = ev.target;
   if (t.dataset.m) model[t.dataset.m] = t.value; else if (t.dataset.s) { const v = parseFloat(t.value); if (isFinite(v)) model.settings[t.dataset.s] = v; } else return; schedule(50); });
-$("#name").addEventListener("change", ev => { model.name = ev.target.value.trim() || "Site"; document.title = model.name + " · Site editor"; schedule(50); });
+$("#name").addEventListener("change", ev => { model.name = ev.target.value.trim() || "Site"; document.title = model.name + " · " + C.app; schedule(50); });
 
 function openPhoto(id) { const p = model.photos.find(p => p.id === id); if (!p) return; const lb = $("#lb");
   lb.querySelector("img").src = "/files/" + p.file; lb.querySelector("div div").textContent = p.name + (p.heading != null ? " · looking " + Math.round(p.heading) + "°" : "");
@@ -498,7 +498,7 @@ $("#layers").innerHTML = LAYERS.map(l => `<label><input type="checkbox" data-l="
 $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev.target.checked; renderBase(); render(); });
 (async () => {
   try { model = await (await fetch("/api/site")).json(); } catch (e) { setStatus("Cannot load the project", true); return; }
-  $("#name").value = model.name; document.title = model.name + " · Site editor";
+  $("#name").value = model.name; document.title = model.name + " · " + C.app;
   hist = [JSON.stringify(model.features)]; hi = 0;
   setTool("select"); renderBase(); fit(); renderResults(); renderProps(); renderSettings(); analyse();
 })();
@@ -507,11 +507,13 @@ $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev
 
 def editor_html() -> str:
     data = {
+        "app": f"{M.BRAND} {M.APP}",
         "geometry": M.GEOMETRY,
         "kind": M.KIND_LABEL,
         "barrier": M.BARRIER_TYPES,
         "access": {k: v[0] for k, v in M.ACCESS_TYPES.items()},
         "height": M.DEFAULT_HEIGHT,
     }
-    body = BODY.replace("__LOGO__", LOGO).replace("__THEME__", theme_button())
-    return page("Site editor", body, CSS, JS, json.loads(json.dumps(data)), default_theme="dark")
+    body = (BODY.replace("__LOGO__", M.BRAND_LOGO).replace("__THEME__", theme_button())
+            .replace("__BRAND__", M.BRAND).replace("__APP__", M.APP))
+    return page(f"{M.BRAND} {M.APP}", body, CSS, JS, json.loads(json.dumps(data)), default_theme="dark")

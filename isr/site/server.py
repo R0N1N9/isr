@@ -107,7 +107,7 @@ def make_server(project: Path, port: int = 8765) -> ThreadingHTTPServer:
 def serve(project: Path, port: int = 8765, open_browser: bool = True) -> None:
     srv = make_server(project, port)
     url = f"http://127.0.0.1:{srv.server_address[1]}/"
-    print(f"Site editor: {url}\nEverything you draw is saved to {Path(project) / 'site.json'}. Press Ctrl+C to stop.")
+    print(f"{M.BRAND} {M.APP} editor: {url}\nEverything you draw is saved to {Path(project) / 'site.json'}. Press Ctrl+C to stop.")
     if open_browser:
         import webbrowser
         threading.Timer(0.4, webbrowser.open, args=(url,)).start()
