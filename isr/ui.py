@@ -44,14 +44,18 @@ def icon(name: str, size: int = 16, cls: str = "") -> str:
             f'aria-hidden="true">{ICONS[name]}</svg>')
 
 
-# The mark: a quadcopter seen from above, four rotors on crossed arms, on a dark plate.
-LOGO_ART = ('<rect x=".5" y=".5" width="31" height="31" rx="8.5" fill="#0d1218" stroke="#2c3743"/>'
-            '<g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">'
-            '<circle cx="9.5" cy="9.5" r="3"/><circle cx="22.5" cy="9.5" r="3"/>'
-            '<circle cx="9.5" cy="22.5" r="3"/><circle cx="22.5" cy="22.5" r="3"/>'
-            '<path d="M12 12l8 8M20 12l-8 8"/></g><circle cx="16" cy="16" r="2.3" fill="#f5a524"/>')
-LOGO = f'<svg class="logo" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">{LOGO_ART}</svg>'
-ICON_SVG = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">{LOGO_ART}</svg>'
+# The mark: a quadcopter seen from above. In pages it follows the theme's accent colours;
+# the stand-alone icon (browser tab, applications menu) uses fixed ones.
+_DRONE = ('<g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">'
+          '<circle cx="9.5" cy="9.5" r="3"/><circle cx="22.5" cy="9.5" r="3"/>'
+          '<circle cx="9.5" cy="22.5" r="3"/><circle cx="22.5" cy="22.5" r="3"/>'
+          '<path d="M12 12l8 8M20 12l-8 8"/></g>')
+_PLATE = ('<defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{a}"/>'
+          '<stop offset="1" stop-color="{b}"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/>')
+LOGO = ('<svg class="logo" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">'
+        + _PLATE.format(a="var(--accent)", b="var(--accent-2)") + _DRONE + "</svg>")
+ICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+            + _PLATE.format(a="#5b5bf7", b="#22b8cf") + _DRONE + "</svg>")
 
 CSS = r"""
 :root{
