@@ -17,7 +17,7 @@ written to the SD card.
 ## Using the app
 
 ```bash
-isr-studio
+isrstudio
 ```
 
 That opens ISR Studio in your browser (it is a page served from your own machine at `127.0.0.1`).
@@ -36,7 +36,7 @@ or delete them. Each job folder holds its report and exports and can be copied t
 On Linux, add it to the applications menu so it starts with a click instead of a terminal:
 
 ```bash
-isr-studio --install-launcher
+isrstudio --install-launcher
 ```
 
 Every section also works from the command line, which is what the rest of this document describes:

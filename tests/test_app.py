@@ -145,5 +145,6 @@ def test_launcher_and_cli(tmp_path, monkeypatch, capsys):
     entry = (tmp_path / "applications" / "isr-studio.desktop").read_text()
     assert "Name=ISR Studio" in entry and "-m isr app" in entry and (tmp_path / "icons" / "isr-studio.svg").exists()
     p = build_parser()
-    assert p.parse_args(["art", "x"]).func is p.parse_args(["studio", "x"]).func  # old name still works
+    assert p.parse_args(["studio"]).func is p.parse_args(["app"]).func  # "isr studio" opens the app
+    assert p.parse_args(["art", "x"]).func is not p.parse_args(["app"]).func
     assert A.slugify("12 Mill Lane (rear)!") == "12-mill-lane-rear" and A.slugify("***") == "job"

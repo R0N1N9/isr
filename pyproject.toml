@@ -17,6 +17,7 @@ dev = ["pytest"]
 [project.scripts]
 isr = "isr.cli:main"
 survey = "isr.cli:survey_main"
+isrstudio = "isr.cli:app_main"
 isr-studio = "isr.cli:app_main"
 
 [tool.setuptools.packages.find]

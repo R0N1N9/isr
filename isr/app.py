@@ -4,7 +4,7 @@
 * **Survey**: assess the security posture of a site.
 * **Art**: find the photos worth publishing or selling.
 
-It is a local web app: ``isr-studio`` starts a server on 127.0.0.1 and opens
+It is a local web app: ``isrstudio`` starts a server on 127.0.0.1 and opens
 the browser. You pick a folder of photos, it runs the job in the background,
 and each job is kept in the workspace folder (``~/ISR-Studio`` by default) as
 ``<section>/<job>/``, complete with its report, so it can be reopened later or

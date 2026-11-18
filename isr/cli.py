@@ -1,6 +1,6 @@
 """Command line entry point: ``isr app | triage | plan | art | enhance | site | info``.
 
-``isr`` on its own (or ``isr-studio``) opens the ISR Studio window.
+``isrstudio`` (or ``isr`` on its own, or ``isr studio``) opens the ISR Studio window.
 """
 
 from __future__ import annotations
@@ -380,7 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
                                  "Run with no command to open the app window.")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    g = sub.add_parser("app", help="open ISR Studio: SAR, Survey and Art in one window",
+    g = sub.add_parser("app", aliases=["studio"], help="open ISR Studio: SAR, Survey and Art in one window",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     g.add_argument("--workspace", default="~/ISR-Studio", help="folder where jobs are kept")
     g.add_argument("--port", type=int, default=8765, help="local port")
@@ -451,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("alts", nargs="*", type=float, help="altitudes to tabulate")
     c.set_defaults(func=cmd_plan)
 
-    st = sub.add_parser("art", aliases=["studio"], help="find your most portfolio-worthy photos and auto-edit the best",
+    st = sub.add_parser("art", help="find your most portfolio-worthy photos and auto-edit the best",
                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     st.add_argument("source", help="folder or SD card to scan (searched recursively; never modified)")
     st.add_argument("-o", "--output", help="output folder (default: ./studio_<timestamp>)")
@@ -539,7 +539,7 @@ def survey_main(argv=None) -> int:
 
 
 def app_main(argv=None) -> int:
-    """The ``isr-studio`` command: open the app window."""
+    """The ``isrstudio`` command: open the app window."""
     return main(["app", *(sys.argv[1:] if argv is None else argv)])
 
 
