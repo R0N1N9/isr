@@ -9,3 +9,5 @@ missions/
 .pytest_cache/
 studio_*/
 edited/
+track_*/
+area/

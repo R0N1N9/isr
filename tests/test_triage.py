@@ -1,5 +1,8 @@
 import json
 
+import numpy as np
+from PIL import Image
+
 import pytest
 from PIL import ImageDraw
 
@@ -134,3 +137,41 @@ def test_end_to_end(card, tmp_path):
     assert any(f["geometry"]["type"] == "Point" for f in gj["features"])
     # nothing written to the card
     assert len(list(root.rglob("*"))) == 7  # 2 folders, 4 photos, notes.txt
+
+
+# ---------------------------------------------------------------- reference photo
+
+def _reference_photo(path, jacket=(238, 118, 14), pants=(32, 52, 138)):
+    rng = np.random.default_rng(0)
+    bg = (np.array([196, 186, 166]) + rng.normal(0, 6, (900, 600, 3))).clip(0, 255).astype(np.uint8)
+    im = Image.fromarray(bg)
+    d = ImageDraw.Draw(im)
+    d.ellipse((255, 120, 345, 220), fill=(214, 170, 140))  # face
+    d.rectangle((210, 220, 390, 520), fill=jacket)
+    d.rectangle((225, 520, 375, 840), fill=pants)
+    im.save(path, quality=92)
+    return path
+
+
+def test_reference_profile_extracts_clothing(tmp_path):
+    from isr.triage.reference import build_profile, similarity
+    prof = build_profile(_reference_photo(tmp_path / "r.jpg"), "person")
+    names = [c["name"] for c in prof.colors]
+    assert names[:2] == ["orange", "blue"]  # wall and face ignored
+    orange_patch = np.full((10, 10, 3), (0.93, 0.46, 0.06), np.float32)
+    green_patch = np.full((10, 10, 3), (0.25, 0.45, 0.15), np.float32)
+    assert similarity(prof, orange_patch) > 0.5 > similarity(prof, green_patch)
+
+
+def test_triage_with_reference(card, tmp_path):
+    from dataclasses import asdict
+    from isr.triage.reference import build_profile
+    root, truth = card
+    prof = build_profile(_reference_photo(tmp_path / "r.jpg"), "person")
+    cfg = TriageConfig(colors=prof.color_specs(), reference=asdict(prof), min_area_m2=0.04, max_area_m2=2.5,
+                       workers=2)
+    data = run_triage(root, tmp_path / "out", cfg, log=lambda *a: None)
+    dets = sorted(((p, d) for p in data["photos"] for d in p["detections"]), key=lambda t: -t[1]["score"])
+    p, top = dets[0]
+    assert p["rel"].endswith("DJI_0003.JPG") and "ref" in top["kinds"]  # the orange-clad person
+    assert all(d["area_m2"] is None or d["area_m2"] <= 2.6 for _, d in dets)  # 6 m² tarp is not a person

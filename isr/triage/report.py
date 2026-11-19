@@ -71,6 +71,10 @@ CSS = r"""
 #lb .nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15)}
 #lb .nav.l{left:16px}#lb .nav.r{right:16px}
 #lb .close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15)}
+.stat.ref{display:flex;gap:12px;align-items:center;padding:10px 12px}
+.stat.ref img{width:52px;height:52px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.stat.ref .sw{display:flex;gap:5px;margin-bottom:4px}
+.stat.ref .sw i{width:20px;height:20px;border-radius:6px;border:1px solid var(--line-2);display:block}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;margin:12px 0}
 .kv dt{color:var(--muted)}.kv dd{margin:0;word-break:break-all}
 """
@@ -98,7 +102,8 @@ function renderStats() {
   $("#stats").innerHTML = stat(S.photos, "Photos scanned") + stat(S.photos_geolocatable, "Geolocated") +
     stat(S.photos_with_hits, "Photos with hits") + stat(S.detections, "Candidates", "accent") +
     stat(conf, "Confirmed") +
-    (S.config.colors.length ? stat(esc(S.config.colors.join(", ")), "Target colours") : "") +
+    (S.config.reference ? `<div class="stat ref"><img src="reference.jpg" alt="Reference"><div><div class="sw">${S.config.reference.colors.map(c => `<i title="${esc(c.name)}" style="background:${c.hex === "white" ? "#fff" : c.hex}"></i>`).join("") || "—"}</div><div class="k">Reference ${esc(S.config.reference.target)}</div></div></div>` :
+     S.config.colors.length ? stat(esc(S.config.colors.join(", ")), "Target colours") : "") +
     (S.errors ? stat(S.errors, "Unreadable") : "");
 }
 
@@ -124,7 +129,7 @@ function card(i, idx) {
   const ll = i.lat != null ? `${i.lat.toFixed(6)}, ${i.lon.toFixed(6)}` : "No position";
   const t = i.photo.taken_at ? i.photo.taken_at.replace("T", " ").slice(5, 16) : "";
   const pct = Math.round(i.score * 100);
-  const tags = i.kinds.map(k => { const [a, b] = k.split(":"); return `<span class="tag ${a === "color" ? "accent" : ""}">${esc(b ? b : a)}${b ? "" : ""}</span>`; }).join("");
+  const tags = i.kinds.map(k => { const [a, b] = k.split(":"); return `<span class="tag ${a === "color" ? "accent" : a === "ref" ? "good" : ""}">${esc(a === "ref" ? "looks like reference" : b ? (b.startsWith("#") ? "ref colour" : b) : a)}</span>`; }).join("");
   return `<article class="card ${st} ${idx === sel ? "sel" : ""}" data-idx="${idx}">
     <div class="thumb" data-open="${idx}">
       <img loading="lazy" src="${esc(i.crop || "")}" alt="${esc(i.label)}" data-open="${idx}">

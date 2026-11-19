@@ -272,7 +272,8 @@ def parse_color(spec: str) -> tuple[str, tuple[float, float, float, float, float
         hd = hh * 360
         if ss < 0.15:
             raise ValueError(f"{spec}: greys/whites/blacks are too common to search by hex; use 'white'")
-        return s, ((hd - 18) % 360, (hd + 18) % 360, max(0.30, ss * 0.6), max(0.15, vv * 0.5), 1.0)
+        # vivid targets must stay vivid: brown soil and dry grass share orange/red hues at lower saturation
+        return s, ((hd - 15) % 360, (hd + 15) % 360, max(0.35, ss * 0.75), max(0.2, vv * 0.6), 1.0)
     raise ValueError(f"unknown colour {spec!r}; use one of {', '.join(NAMED_COLORS)} or a #rrggbb hex")
 
 
@@ -321,7 +322,7 @@ class ColorTargetDetector:
                 size_term = min(1.0, n * w.gsd_work_m**2 / 0.15) if w.gsd_work_m else 0.6
                 score = 0.45 + 0.25 * min(1.0, mean / 0.6) + 0.25 * size_term
                 dets.append(
-                    _to_detection(sy, sx, w, min(score, 0.95), [f"color:{name}"], f"{name} match", n)
+                    _to_detection(sy, sx, w, min(score, 0.95), [f"color:{name}"], f"{_display(name)} match", n)
                 )
         return dets
 
@@ -365,7 +366,10 @@ class AIDetector:
         self.device = device
         names = set(self.model.names.values())
         # custom (e.g. SAR-trained) models: every class is relevant
-        self.classes = classes or (SAR_COCO_CLASSES & names if SAR_COCO_CLASSES & names else names)
+        if classes and classes & names:
+            self.classes = classes & names
+        else:
+            self.classes = SAR_COCO_CLASSES & names if SAR_COCO_CLASSES & names else names
 
     def detect_path(self, path, gsd_full_m: float | None, sizes: SizeFilter) -> list[Detection]:
         with Image.open(path) as im:
@@ -426,6 +430,16 @@ def merge_detections(dets: list[Detection], iou: float = 0.05, near_px: float = 
             merged.append(Detection(d.x0, d.y0, d.x1, d.y1, d.score, list(d.kinds), d.label, d.area_m2,
                                     dict(d.extra)))
     return merged
+
+
+def _display(name: str) -> str:
+    """Human name for a colour spec: hex codes (e.g. from a reference photo) become 'orange' etc."""
+    if not name.startswith("#"):
+        return name
+    h = name[1:]
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return describe_rgb([int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)])
 
 
 def describe_rgb(rgb) -> str:

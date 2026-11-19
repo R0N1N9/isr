@@ -44,6 +44,26 @@ class TriageConfig:
     workers: int = 0  # 0 = auto
     preview_px: int = 1800
     crop_px: int = 420
+    reference: dict | None = None  # ReferenceProfile as a dict (see reference.py)
+
+
+def _ref_profile(cfg: TriageConfig):
+    if not cfg.reference:
+        return None
+    from .reference import ReferenceProfile
+    return ReferenceProfile(**cfg.reference)
+
+
+def apply_reference(d: Detection, sim: float) -> None:
+    """Raise candidates that look like the reference subject; lower clear mismatches."""
+    d.extra["ref_sim"] = round(sim, 3)
+    if sim >= 0.55:
+        d.score = 1 - (1 - d.score) * (1 - 0.7 * sim)
+        if "ref" not in d.kinds:
+            d.kinds.append("ref")
+        d.label += f" · {sim:.0%} like reference"
+    elif sim < 0.25:
+        d.score *= 0.85
 
 
 @dataclass
@@ -97,9 +117,31 @@ def _classic_detect(path: Path, cfg: TriageConfig) -> tuple[PhotoMeta | None, li
             dets += RXAnomalyDetector(sensitivity=cfg.sensitivity).detect(w, sizes)
         if cfg.colors:
             dets += ColorTargetDetector(cfg.colors).detect(w, sizes)
+        prof = _ref_profile(cfg)
+        if prof is not None:
+            from .reference import similarity
+            for d in dets:
+                x0, y0 = int(d.x0 / w.scale), int(d.y0 / w.scale)
+                x1, y1 = max(x0 + 1, int(d.x1 / w.scale)), max(y0 + 1, int(d.y1 / w.scale))
+                d.extra["ref_sim"] = round(similarity(prof, w.rgb[y0:y1, x0:x1]), 3)
         return meta, dets, None
     except Exception as e:
         return meta, [], f"detect: {e}"
+
+
+def _score_reference(dets: list[Detection], prof, path: Path) -> None:
+    """Apply appearance similarity; AI-only hits get it measured from the photo here."""
+    from .reference import similarity
+    todo = [d for d in dets if d.extra.get("ref_sim") is None]
+    if todo:
+        import numpy as np
+        with Image.open(path) as im:
+            for d in todo:
+                patch = im.crop((int(d.x0), int(d.y0), int(d.x1) + 1, int(d.y1) + 1)).convert("RGB")
+                patch.thumbnail((96, 96))
+                d.extra["ref_sim"] = similarity(prof, np.asarray(patch, np.float32) / 255)
+    for d in dets:
+        apply_reference(d, float(d.extra["ref_sim"]))
 
 
 def _render(path: Path, dets: list[dict], out_dir: Path, stem: str, cfg: TriageConfig) -> str | None:
@@ -159,7 +201,12 @@ def run_triage(source: Path, out_dir: Path, cfg: TriageConfig, log=print) -> dic
     workers = cfg.workers or max(1, (os.cpu_count() or 2) - 1)
     log(f"Scanning {len(photos)} photos from {source} with {workers} worker(s)...")
 
-    ai = AIDetector(cfg.ai_model, conf=cfg.ai_conf) if cfg.ai else None
+    prof = _ref_profile(cfg)
+    ai_classes = None
+    if prof is not None:
+        from .reference import AI_CLASSES
+        ai_classes = AI_CLASSES[prof.target]
+    ai = AIDetector(cfg.ai_model, conf=cfg.ai_conf, classes=ai_classes) if cfg.ai else None
     sizes = SizeFilter(cfg.min_area_m2, cfg.max_area_m2)
 
     results: list[PhotoResult] = []
@@ -179,6 +226,8 @@ def run_triage(source: Path, out_dir: Path, cfg: TriageConfig, log=print) -> dic
                 gsd = meta.gsd_m(cfg.ground_offset_m)
                 near = 1.0 / gsd if gsd else 0.01 * max(meta.width, meta.height)
             dets = merge_detections(dets, near_px=near)
+            if prof is not None:
+                _score_reference(dets, prof, path)
             dets = [d for d in dets if d.score >= cfg.min_score]
             dets.sort(key=lambda d: -d.score)
             dets = dets[: cfg.max_per_photo]

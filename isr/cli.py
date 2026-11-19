@@ -1,4 +1,4 @@
-"""Command line entry point: ``isr triage | plan | studio | enhance | info``."""
+"""Command line entry point: ``isr triage | plan | track | studio | enhance | info``."""
 
 from __future__ import annotations
 
@@ -57,6 +57,25 @@ def cmd_triage(a) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 2
     out = Path(a.output).expanduser() if a.output else Path.cwd() / f"triage_{time.strftime('%Y%m%d_%H%M%S')}"
+    ref = None
+    if a.reference:
+        from dataclasses import asdict
+
+        from .triage.reference import TARGET_SIZES, build_profile
+
+        box = tuple(int(float(v)) for v in a.ref_box.split(",")) if a.ref_box else None
+        out.mkdir(parents=True, exist_ok=True)
+        prof = build_profile(Path(a.reference).expanduser(), a.target, box, save_crop=out / "reference.jpg")
+        ref = asdict(prof)
+        sw = ", ".join(f"{c['name']} {c['hex'] if c['hex'] != 'white' else ''} ({c['share']:.0%})".replace("  ", " ")
+                       for c in prof.colors) or "none"
+        print(f"Reference {a.target}: distinctive colours {sw}")
+        for n in prof.notes:
+            print(f"  ! {n}")
+        a.color = list(dict.fromkeys(a.color + prof.color_specs()))
+        lo, hi = TARGET_SIZES[a.target]
+        if a.min_area == 0.04 and a.max_area == 12.0:  # user didn't override the size window
+            a.min_area, a.max_area = lo, hi
     cfg = TriageConfig(
         colors=a.color,
         anomaly=not a.no_anomaly,
@@ -71,6 +90,7 @@ def cmd_triage(a) -> int:
         min_score=a.min_score,
         max_per_photo=a.max_per_photo,
         workers=a.workers,
+        reference=ref,
     )
     if not cfg.anomaly and not cfg.colors and not cfg.ai:
         print("error: all detectors disabled; add --color, --ai, or drop --no-anomaly", file=sys.stderr)
@@ -256,6 +276,89 @@ def cmd_enhance(a) -> int:
 
 
 # --------------------------------------------------------------------------
+# track
+# --------------------------------------------------------------------------
+
+
+def _bbox(a) -> tuple[float, float, float, float]:
+    from .geo import from_local
+
+    if a.bbox:
+        s, w, n, e = (float(x) for x in a.bbox.split(","))
+        return min(s, n), min(w, e), max(s, n), max(w, e)
+    if a.center:
+        r = a.radius
+        s, w = from_local(a.center[0], a.center[1], -r, -r)
+        n, e = from_local(a.center[0], a.center[1], r, r)
+        return s, w, n, e
+    raise SystemExit("error: give --center LAT,LON --radius M or --bbox S,W,N,E")
+
+
+def cmd_track_fetch(a) -> int:
+    from .track.terrain import fetch_area
+
+    bbox = _bbox(a)
+    out = Path(a.output).expanduser()
+    print(f"Fetching area pack for {bbox[0]:.4f},{bbox[1]:.4f} to {bbox[2]:.4f},{bbox[3]:.4f} ...")
+    pack = fetch_area(bbox, zoom=a.zoom, osm=not a.no_osm, osm_file=Path(a.osm_file) if a.osm_file else None,
+                      overpass_url=a.overpass)
+    pack.save(out)
+    print(f"Saved {out}: {pack.summary()}")
+    return 0
+
+
+def cmd_track_predict(a) -> int:
+    import json as _json
+
+    from .track.pipeline import TrackConfig, run_track
+    from .track.report import write_track_report
+    from .track.sightings import load_file, parse_point, parse_time
+    from .track.terrain import AreaPack
+
+    sights = []
+    for f in a.sightings:
+        got = load_file(Path(f).expanduser())
+        print(f"  {len(got)} sighting(s) from {f}")
+        sights += got
+    if a.lkp:
+        sights.append(parse_point(a.lkp, "Last known point"))
+    for k, pt in enumerate(a.point, 1):
+        sights.append(parse_point(pt, f"Point {k}"))
+    if not sights:
+        print("error: no sightings (use -s FILE, --lkp, or --point)", file=sys.stderr)
+        return 2
+    pack = AreaPack.load(Path(a.area).expanduser()) if a.area else None
+    coverage = []
+    for f in a.coverage:
+        js = _json.loads(Path(f).expanduser().read_text())
+        coverage += [p["footprint"] for p in js.get("photos", []) if p.get("footprint")]
+    if a.coverage:
+        print(f"  {len(coverage)} photo footprint(s) of searched ground")
+    cfg = TrackConfig(mode=a.mode, profile=a.profile, speed_factor=a.speed_factor, offroad_kmh=a.offroad_kmh,
+                      at=parse_time(a.at) if a.at else None, hours=a.hours, heading_weight=a.heading_weight,
+                      trail_bias=a.trail_bias, pod=a.pod, segment_m=a.segment_m, top_segments=a.segments,
+                      res_m=a.res)
+    out = Path(a.output).expanduser() if a.output else Path.cwd() / f"track_{time.strftime('%Y%m%d_%H%M%S')}"
+    data = run_track(sights, pack, cfg, out, coverage)
+    report = write_track_report(data, out)
+    s = data["summary"]
+    print()
+    print(f"Predicted for {s['at']}: {s['elapsed_min']:.0f} min since '{s['last']['label']}'. "
+          f"Reachable: {s['reach_km2']} km², up to {s['reach_max_km']} km away.")
+    for k, leg in enumerate(data["legs"], 1):
+        print(f"  leg {k}: {leg['from']} -> {leg['to']}: {leg['verdict']}")
+    for sg in data["segments"][:5]:
+        print(f"  segment {sg['rank']}: {sg['p_remaining']:.1%} of remaining probability -> "
+              f"{out / 'segments' / ('segment_%02d.kml' % sg['rank'])}")
+    for n in s["notes"]:
+        print(f"  ! {n}")
+    print(f"Map: {report}")
+    if a.open:
+        webbrowser.open(report.resolve().as_uri())
+    return 0
+
+
+# --------------------------------------------------------------------------
 # info
 # --------------------------------------------------------------------------
 
@@ -292,6 +395,12 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("-c", "--color", action="append", default=[], metavar="COLOR",
                    help="known clothing/gear colour to look for; repeatable. Names (red, orange, yellow, blue, "
                         "purple, pink, cyan, white, green) or #rrggbb")
+    t.add_argument("--reference", metavar="PHOTO",
+                   help="photo of the missing person / their vehicle / animal: its colours and size class are "
+                        "used to search and rank (no face recognition)")
+    t.add_argument("--target", choices=["person", "vehicle", "animal"], default="person",
+                   help="what the reference photo shows")
+    t.add_argument("--ref-box", metavar="X0,Y0,X1,Y1", help="pixel box around the subject in the reference photo")
     t.add_argument("--no-anomaly", action="store_true", help="disable the colour-anomaly detector")
     t.add_argument("--sensitivity", type=float, default=1.0, help="anomaly sensitivity; >1 flags more, <1 fewer")
     t.add_argument("--ai", action="store_true", help="also run the YOLO person/object detector (needs ultralytics)")
@@ -372,6 +481,46 @@ def build_parser() -> argparse.ArgumentParser:
     en.add_argument("--suffix", default="_edit", help="added to each output file name")
     en.add_argument("--overwrite", action="store_true", help="replace existing files in the output folder")
     en.set_defaults(func=cmd_enhance)
+
+    tr = sub.add_parser("track", help="movement analysis: where could the subject be now?")
+    trs = tr.add_subparsers(dest="track_cmd", required=True)
+    tf = trs.add_parser("fetch", help="download elevation + trails/roads/water for an area (run while online)",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    tf.add_argument("--center", type=_latlon, help="area centre 'lat,lon'")
+    tf.add_argument("--radius", type=float, default=8000, help="half-width of the area, m")
+    tf.add_argument("--bbox", help="S,W,N,E instead of --center/--radius")
+    tf.add_argument("-o", "--output", default="area", help="area pack folder")
+    tf.add_argument("--zoom", type=int, default=12, help="elevation zoom (12 = ~30 m, 13 = ~15 m)")
+    tf.add_argument("--no-osm", action="store_true", help="elevation only")
+    tf.add_argument("--osm-file", help="use an exported OSM file (Overpass JSON, GeoJSON or .osm) instead of downloading")
+    tf.add_argument("--overpass", default="https://overpass-api.de/api/interpreter", help="Overpass API URL")
+    tf.set_defaults(func=cmd_track_fetch)
+
+    tp = trs.add_parser("predict", help="reach, corridors, probability map and ranked search segments",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    tp.add_argument("-s", "--sightings", action="append", default=[], metavar="FILE",
+                    help="CSV (e.g. confirmed.csv from the triage report) or GPX of timed sightings; repeatable")
+    tp.add_argument("--lkp", help="last known point 'lat,lon,time' (e.g. 39.70,-105.20,2026-11-16T09:30)")
+    tp.add_argument("--point", action="append", default=[], help="extra sighting 'lat,lon,time'; repeatable")
+    tp.add_argument("--mode", choices=["foot", "vehicle"], default="foot")
+    tp.add_argument("--profile", choices=["hiker", "runner", "child", "elderly", "dementia", "injured"],
+                    default="hiker", help="walking-speed profile (foot mode)")
+    tp.add_argument("--speed-factor", type=float, default=1.0, help="multiply all speeds (e.g. 0.8 at night)")
+    tp.add_argument("--offroad-kmh", type=float, default=3.0, help="vehicle speed off the road network")
+    tp.add_argument("--at", help="predict for this time (default: now), e.g. 2026-11-16T14:00")
+    tp.add_argument("--hours", type=float, help="hours since the last sighting (instead of --at)")
+    tp.add_argument("--area", help="area pack folder from `isr track fetch`")
+    tp.add_argument("--coverage", action="append", default=[], metavar="RESULTS_JSON",
+                    help="triage results.json whose photo footprints count as searched; repeatable")
+    tp.add_argument("--pod", type=float, default=0.7, help="probability a photo search would have spotted them")
+    tp.add_argument("--heading-weight", type=float, default=1.0, help="how strongly to favour the direction of travel")
+    tp.add_argument("--trail-bias", type=float, default=1.5, help="extra weight near trails/roads (foot)")
+    tp.add_argument("--segment-m", type=float, default=0, help="search segment size, m (0 = 250 foot / 1000 vehicle)")
+    tp.add_argument("--segments", type=int, default=8, help="how many ranked segments to export")
+    tp.add_argument("--res", type=float, default=0, help="model cell size, m (0 = auto)")
+    tp.add_argument("-o", "--output", help="output folder (default: ./track_<timestamp>)")
+    tp.add_argument("--open", action="store_true", help="open the map in a browser when done")
+    tp.set_defaults(func=cmd_track_predict)
 
     i = sub.add_parser("info", help="show the metadata the tools read from a photo")
     i.add_argument("photos", nargs="+")

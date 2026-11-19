@@ -11,7 +11,11 @@ Offline field and studio tools for a Mavic 3 + DJI RC:
 3. **`isr studio`**: ranks every photo on a card for portfolio or print potential, groups bursts and
    re-takes so each moment shows its best frame, and auto-edits the top picks. You choose favourites
    in a gallery with a before/after slider.
-4. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
+4. **`isr track`**: movement analysis. From timed sightings and the last known point it checks
+   each leg for plausibility, draws the corridors the subject could have used, maps where they could
+   be now on foot or by vehicle (terrain-, trail- and road-aware), and ranks search segments that
+   `isr plan` can fly next.
+5. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
    vibrance, horizon straightening, sharpening) written to new files with all metadata kept.
 
 Everything runs on a laptop with no internet connection. Nothing is ever written to the SD card.
@@ -107,6 +111,36 @@ Open `report.html`. Candidates are sorted by score.
 
 Confirmed and dismissed marks are kept in that browser. **Export confirmed GPX** gives you only the
 finds you've confirmed, ready to send to a ground team. Click a coordinate to copy it.
+
+### Searching from a reference photo
+
+If the family can provide a recent photo, give it to triage:
+
+```bash
+isr triage E:\DCIM --reference last_seen.jpg --target person --open
+```
+
+`--target` can be `person`, `vehicle` or `animal`.
+
+Triage extracts what a drone can actually see from altitude: the subject's **distinctive colours**
+(skin and background are ignored) and its **size class**. It then uses them three ways:
+
+* the colours become colour targets;
+* the size window is set for the target type (person 0.04–2.5 m², vehicle 2.5–30 m², animal
+  0.05–4 m²);
+* every candidate gets an appearance score against the reference, which raises close matches
+  ("82% like reference") and lowers clear mismatches.
+
+With `--ai`, the AI detector is limited to the matching classes. If the subject doesn't fill the
+middle of the reference photo, add `--ref-box X0,Y0,X1,Y1` (pixels) around them.
+
+![Triage with a reference photo](docs/triage_reference.jpg)
+
+What it deliberately does **not** do: facial or biometric recognition, or picking a particular
+person out of a crowd. Faces aren't resolvable from drone altitude anyway (a face is a few pixels
+across at 60 m), and identifying specific individuals among bystanders isn't something this tool is
+built for. Black, grey or camouflage clothing can't be matched by colour; the tool warns you, and
+anomaly detection and size still apply.
 
 ### Detectors
 
@@ -222,6 +256,65 @@ drone ID, which DJI Fly on a consumer Mavic 3 may reject.
 
 Without RTK, measurements within a map will be good, but its absolute position is only accurate to a
 few metres. Add ground control points if you need survey-grade placement.
+
+---
+
+## Movement analysis: where could they be now?
+
+```bash
+# 1. While online: download elevation + trails/roads/rivers for the area (once per area)
+isr track fetch --center 39.7500,-105.4500 --radius 8000 -o area_bear_creek
+
+# 2. In the field: last known point + confirmed sightings -> map
+isr track predict --area area_bear_creek \
+    --lkp "39.7500,-105.4500,2026-11-16T09:00" \
+    -s triage_run1/confirmed.csv \
+    --coverage triage_run1/results.json \
+    --profile hiker --open
+
+# Vehicle: road network instead of trails
+isr track predict --area area_bear_creek --mode vehicle --lkp "39.75,-105.45,2026-11-16T09:00" --hours 1.5
+```
+
+**Sightings** can come from:
+
+* **Export confirmed CSV** in the triage report;
+* any CSV with `lat`, `lon` and a time column;
+* GPX waypoints (e.g. from a ground team's GPS);
+* `--lkp` / `--point "lat,lon,time"` typed in.
+
+Photo times are read from the drone's metadata. `--at` sets the time to predict for (default: now),
+or use `--hours` since the last sighting.
+
+**What you get** (`track.html`, plus `track.kml`, `track.gpx` and `segments/segment_NN.kml`):
+
+| Layer | Meaning |
+|---|---|
+| **Leg checks** | For each pair of sightings: distance, time, implied speed, and whether the terrain allows it. "Implausible" or "faster than terrain allows" usually means a different subject, a wrong time, or a position error. |
+| **Corridors** | Every place the subject could have passed through and still reach the next sighting on time (a *space-time prism*), plus the fastest route. |
+| **Reach** | Everywhere reachable by now, with time contours. |
+| **Probability** | Where they're most likely now: ahead in their direction of travel and near trails, with photo-searched ground discounted (`--pod`, default 0.7). |
+| **Segments** | Square search areas (250 m on foot, 1 km by vehicle) ranked by remaining probability. Each is a KML ready for `isr plan search --aoi segments/segment_01.kml`. |
+
+**How movement is modelled**
+
+* **On foot:** walking speed follows Tobler's hiking function, so it's fastest slightly downhill and
+  slows steeply uphill or down steep ground. It is 40% slower off-trail. Streams are slow. Rivers,
+  lakes, cliffs and slopes over 45° are impassable except where a trail or road crosses.
+* **Speed profile:** `--profile` sets hiker, runner, child, elderly, dementia or injured, and
+  `--speed-factor` scales everything (e.g. 0.7 at night or in snow).
+* **Vehicle:** road speeds by road class, with a slow off-road speed (`--offroad-kmh`).
+* **Probability assumptions:** the subject moved for an unknown share of the time, with
+  `--heading-weight` and `--trail-bias` tuning direction and trail preference.
+
+![Movement analysis on real terrain](docs/track_map.jpg)
+
+**Limits.** It ranks where to look; it doesn't predict one route or clear ground. Map data is only
+as good as OpenStreetMap for your area. DJI photo times are local camera time with no time zone, so
+keep the laptop on the search area's time zone and check the drone clock once if you mix in outside
+times. Without an area pack the model falls back to flat ground with no trails (and says so).
+If the OpenStreetMap download fails, export the area as JSON from
+[overpass-turbo.eu](https://overpass-turbo.eu) and pass `--osm-file export.json`.
 
 ---
 
@@ -347,7 +440,9 @@ pytest
 The tests generate synthetic DJI photos with real EXIF and XMP metadata and known targets
 (`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
 the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
-and that edits keep metadata and never touch the originals.
+that edits keep metadata and never touch the originals, reference-photo matching, and the movement
+model (walking times against Tobler's formula, river barriers and bridges, uphill vs downhill, road
+routing, corridors, probability maps and segment ranking).
 
 ## Safety and legal
 
