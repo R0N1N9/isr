@@ -79,7 +79,7 @@ def write_report(d: dict, out: Path) -> Path:
     s = d["summary"]
     stat = lambda v, k, cls="": f'<div class="stat {cls}"><div class="v">{v}</div><div class="k">{k}</div></div>'  # noqa: E731
     c0, c1 = d["closed"]
-    b = [f'<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME} <span>/ Watch</span></div></div>'
+    b = [f'<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME} <span>/ Stakeout</span></div></div>'
          f'<div class="spacer"></div><button class="btn" onclick="print()">{icon("download")}<span class="lbl">Print / save PDF</span></button>'
          f'{theme_button()}</header><div class="wrap">',
          f'<div class="cover"><div class="label">Pattern of activity</div><h1>{h(d["name"])}</h1><div class="sub">'
@@ -88,7 +88,8 @@ def write_report(d: dict, out: Path) -> Path:
          f' · site treated as closed {c0:02d}:00–{c1:02d}:00</div></div>',
          '<div class="stats">' + stat(s["photos"], "Photos read") + stat(s["events"], "Movements") +
          stat(f'{s["days"]:g}', "Days watched") + stat(f'{s["per_day"]:g}', "Movements a day") +
-         stat(s["out_of_hours"], "Out of hours", "bad" if s["out_of_hours"] else "") + "</div>",
+         stat(s["out_of_hours"], "Out of hours", "bad" if s["out_of_hours"] else "") +
+         stat(s.get("set_aside", 0), "Set aside as weather or light") + "</div>",
          "<h2>What this means for guarding</h2>", advice_html(d["advice"]),
          "<h2>When things move</h2>",
          '<p class="lead">Each square is one hour of one day of the week; the stronger the colour, the more movements an '
@@ -107,15 +108,29 @@ def write_report(d: dict, out: Path) -> Path:
                 f'<figure><a href="{h(e["frame"])}"><img src="{h(e["frame"])}" alt=""></a><figcaption>'
                 f'{DAYS[e["weekday"]]} {h(e["time"])}{" · night" if e["night"] else ""}</figcaption></figure>' for e in ev)
                 + "</div>")
+    aside = d.get("set_aside") or []
+    if aside:
+        b.append(f"<h2>Set aside as probably not somebody ({len(aside)})</h2>"
+                 '<p class="lead">Changes in the picture that look like weather or light, with the reason. They are left out '
+                 'of every count above. Look through them: if one is a person, the checks were too strict for this view.</p>'
+                 "<div class='frames'>" + "".join(
+                     f'<figure><a href="{h(e["frame"])}"><img src="{h(e["frame"])}" alt=""></a><figcaption style="white-space:normal">'
+                     f'{DAYS[e["weekday"]]} {h(e["time"])}<br>{h("; ".join(e["why"]))}</figcaption></figure>'
+                     for e in aside if e.get("frame")) + "</div>")
+        hidden = sum(1 for e in aside if not e.get("frame"))
+        if hidden:
+            b.append(f'<p class="sub">{hidden} more are listed in activity.json.</p>')
     b.append("""<h2>How to read this</h2><ul class="limits">
 <li><b>A movement is a change in the picture</b>, compared with the same view at nearby times: a person, a vehicle,
 an animal, a gate swinging. Frames in which the camera fired but nothing differs are ignored. Movements less than a
 minute apart count once. Nobody is identified.</li>
-<li><b>Wind, rain, headlights and moving shadows cause false movements</b>, and a small or distant figure can be
-missed. Look at the frames before acting on a number.</li>
+<li><b>Weather and light are checked, not eliminated.</b> A change is set aside when it is scattered patches rather
+than one shape, sits in a part of the view that moves on windy days, or is a broad change at dawn or dusk; gusts and
+rain that hour count against it. Headlights, a shadow crossing, or an animal still count as movement, and a small or
+distant figure can be missed. Look at the frames before acting on a number.</li>
 <li><b>One camera sees one view.</b> A quiet gate here says nothing about the back fence.</li>
 <li><b>Only watch a site you are engaged to assess</b>, with the owner's agreement, and follow local rules on
 recording people (signage, retention, who may see the pictures).</li></ul></div>""")
     path = out / "report.html"
-    path.write_text(page(f"Watch: {h(d['name'])}", "".join(b), CSS, "", None, default_theme="light"), encoding="utf-8")
+    path.write_text(page(f"Stakeout: {h(d['name'])}", "".join(b), CSS, "", None, default_theme="light"), encoding="utf-8")
     return path

@@ -55,10 +55,10 @@ def studio(tmp_path_factory):
 def test_home_lists_three_sections(studio):
     code, page = studio["call"]("/", raw=True)
     assert code == 200 and b"ISRStudio" in page
-    for word in (b"SAR", b"Survey", b"Art", b"Watch", b"New search", b"New survey", b"New selection", b"New watch"):
+    for word in (b"SAR", b"Survey", b"Art", b"Stakeout", b"New search", b"New survey", b"New selection", b"New stakeout"):
         assert word in page
     code, home = studio["call"]("/api/home")
-    assert set(home["jobs"]) == {"sar", "survey", "art", "watch"} and home["workspace"].endswith("ws")
+    assert set(home["jobs"]) == {"sar", "survey", "art", "stakeout"} and home["workspace"].endswith("ws")
 
 
 def test_folder_picker(studio):
@@ -166,9 +166,9 @@ def test_art_demo_ranks_keepers_above_rejects(studio):
 
 
 def test_watch_demo_finds_the_weekly_pattern(studio):
-    s = studio["run"]("watch", demo=True)
-    assert s["state"] == "done" and s["url"] == "/watch/demo-gate-one-week/"
-    job = studio["root"] / "ws" / "watch" / "demo-gate-one-week"
+    s = studio["run"]("stakeout", demo=True)
+    assert s["state"] == "done" and s["url"] == "/stakeout/demo-gate-one-week/"
+    job = studio["root"] / "ws" / "stakeout" / "demo-gate-one-week"
     d = json.loads((job / "activity.json").read_text())
     sm = d["summary"]
     assert d["mode"] == "triggered" and d["watching"] == "Front gate" and 6 <= sm["days"] <= 7
@@ -182,20 +182,28 @@ def test_watch_demo_finds_the_weekly_pattern(studio):
     assert all(e["night"] for e in ooh if e["hour"] < 5)
     kinds = [a["kind"] for a in d["advice"]]
     assert "peak" in kinds and "out_of_hours" in kinds and "pattern" in kinds
+    # two blustery days set the camera off on a hedge about fifty times: the weather history gets those set aside
+    windy = lambda e: e["weekday"] in (2, 6) and 10 <= e["hour"] < 16  # noqa: E731
+    assert sm["set_aside"] >= 40 and sum(windy(e) for e in d["set_aside"]) >= sm["set_aside"] - 4
+    assert sum(windy(e) for e in d["events"]) <= 10
+    assert any("moves when it is windy" in w for e in d["set_aside"] for w in e["why"])
+    assert d["weather"]["gusty_hours"] == 12 and d["weather"]["wet_hours"] == 2 and d["weather"]["wind_zone_pct"] > 1
+    assert d["sun"]["sunrise"] < "07:00" and d["sun"]["sunset"] > "16:30" and 30 <= sm["in_darkness"] <= 60
     assert (job / "scene.jpg").exists() and (job / "heat.png").exists() and (job / ooh[0]["frame"]).exists()
     html = (job / "report.html").read_text()
     assert "What this means for guarding" in html and "Out of hours" in html and "<svg" in html
-    assert "movements over" in studio["call"]("/api/home")[1]["jobs"]["watch"][0]["summary"]
+    assert "Set aside as probably not somebody" in html
+    assert "movements over" in studio["call"]("/api/home")[1]["jobs"]["stakeout"][0]["summary"]
 
 
 def test_stakeout_attached_to_a_survey_times_the_guard_plan(studio):
     from isr.site import model as SM
     from isr.site.analysis import analyse
     from isr.site.report import write_report
-    from isr.watch.pipeline import compact
+    from isr.stakeout.pipeline import compact
 
-    job = studio["root"] / "ws" / "watch" / "demo-gate-one-week"
-    code, act = studio["call"]("/watch/demo-gate-one-week/activity.json")  # what the editor fetches to attach it
+    job = studio["root"] / "ws" / "stakeout" / "demo-gate-one-week"
+    code, act = studio["call"]("/stakeout/demo-gate-one-week/activity.json")  # what the editor fetches to attach it
     assert code == 200 and act == json.loads((job / "activity.json").read_text())
     out = studio["root"] / "surveyed"
     m = demo.build_demo(out, log=lambda *a: None)
@@ -215,13 +223,81 @@ def test_stakeout_attached_to_a_survey_times_the_guard_plan(studio):
     assert "Activity over time" in html and "When to hold posts and time patrols" in html
 
 
+def test_without_weather_the_hedge_is_counted(studio, tmp_path):
+    """The same week judged on the pictures alone: the windy-day false alarms mostly get through."""
+    from isr.stakeout.pipeline import run_watch
+
+    src = studio["root"] / "ws" / "_demo_photos" / "stakeout"
+    d = run_watch(src, tmp_path / "o", log=lambda *a: None)
+    assert d["summary"]["set_aside"] < 10 and d["summary"]["events"] > 195 and d["weather"] is None and d["sun"] is None
+    assert sum(e["weekday"] in (2, 6) and 10 <= e["hour"] < 16 for e in d["events"]) > 40
+
+
+def test_sun_and_weather_history(monkeypatch):
+    import io
+    import urllib.error
+    from datetime import date, datetime
+    from isr.stakeout import environment as E
+
+    assert E.sun_elevation(51.5, -0.13, datetime(2026, 6, 21, 13, 0), 1) == pytest.approx(62, abs=0.7)
+    assert E.sun_elevation(0, 0, datetime(2026, 3, 20, 12, 7), 0) > 89
+    assert E.sun_elevation(51.5, -0.13, datetime(2026, 12, 21, 0, 0), 0) < -50
+    rise, sett = E.sun_times(51.5, -0.13, date(2026, 11, 12), 0)  # almanac: 07:13 and 16:15
+    assert "07:08" <= rise <= "07:18" and "16:10" <= sett <= "16:20"
+    rise, sett = E.sun_times(40.71, -74.0, date(2026, 7, 4), -4)  # New York on daylight time: 05:29 and 20:30
+    assert "05:24" <= rise <= "05:34" and "20:25" <= sett <= "20:35"
+    assert E.sun_times(78.2, 15.6, date(2026, 6, 21), 2) == (None, None)  # midnight sun
+    assert E.guess_utc_offset(-105.2) == -7 and E.guess_utc_offset(-1.26) == 0
+
+    asked = []
+
+    class Reply(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    def opener(req, timeout=0):
+        asked.append(req.full_url)
+        if "archive-api" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 400, "bad", {}, io.BytesIO(b'{"error":true,"reason":"out of range"}'))
+        return Reply(json.dumps({"utc_offset_seconds": 3600, "timezone": "Europe/Paris", "hourly": {
+            "time": ["2026-11-09T00:00", "2026-11-09T01:00", "2026-11-09T02:00"], "precipitation": [0.0, 2.5, None],
+            "snowfall": [0, 0, None], "wind_speed_10m": [5, 20, None], "wind_gusts_10m": [9.0, 61.0, None],
+            "cloud_cover": [10, 100, None]}}).encode())
+
+    w = E.fetch_weather(48.85837, 2.29448, date(2026, 11, 9), date(2026, 11, 9), opener=opener)
+    assert w["utc_offset_h"] == 1 and w["timezone"] == "Europe/Paris" and set(w["hours"]) == {"2026-11-09T00", "2026-11-09T01"}
+    assert w["hours"]["2026-11-09T01"] == {"gust": 61.0, "wind": 20, "rain": 2.5, "snow": 0, "cloud": 100}
+    # only a position rounded to about a kilometre, and the dates, leave the machine
+    assert "latitude=48.86" in asked[0] and "longitude=2.29" in asked[0] and "48.858" not in asked[0]
+    assert "start_date=2026-11-09" in asked[0] and "isrstudio" not in asked[0].split("?")[1]
+    with pytest.raises(E.WeatherError, match="out of range"):
+        E.fetch_weather(48.86, 2.29, date(1990, 1, 1), date(1990, 1, 2), opener=lambda req, timeout=0: opener(
+            type("R", (), {"full_url": req.full_url.replace("api.open-meteo", "archive-api.open-meteo")})()))
+
+
+def test_stakeout_location_and_old_folder_name(studio, tmp_path):
+    assert A.parse_location("51.752, -1.2577") == (51.752, -1.2577) and A.parse_location("  ") is None
+    assert A.parse_location("39.7° -105.2°") == (39.7, -105.2)
+    for bad in ("somewhere", "95, 10", "10"):
+        with pytest.raises(ValueError):
+            A.parse_location(bad)
+    assert studio["call"]("/api/new", {"section": "stakeout", "source": str(studio["photos"]), "location": "nope"})[0] == 400
+    (tmp_path / "ws" / "watch" / "old-job").mkdir(parents=True)  # the section used to be called Watch
+    A.Studio(tmp_path / "ws")
+    assert (tmp_path / "ws" / "stakeout" / "old-job").is_dir() and not (tmp_path / "ws" / "watch").exists()
+    assert list(A.SECTIONS) == ["sar", "survey", "stakeout", "art"]
+
+
 def test_watch_reads_file_times_and_interval_cameras(tmp_path):
     """No EXIF: fall back to the file's time. A camera shooting every few minutes is recognised as such."""
     import os
     from datetime import datetime
     import numpy as np
     from PIL import Image
-    from isr.watch.pipeline import run_watch, taken_at
+    from isr.stakeout.pipeline import run_watch, taken_at
 
     rng = np.random.default_rng(0)
     base = rng.integers(60, 180, (120, 160, 3)).astype(np.uint8)

@@ -3,7 +3,7 @@
 * **SAR**: scan photos for missing persons or targets of interest.
 * **Survey**: assess the security posture of a site.
 * **Art**: find the photos worth publishing or selling.
-* **Watch**: read a stakeout camera's photos for the site's pattern of activity.
+* **Stakeout**: read a fixed camera's photos for the site's pattern of activity.
 
 It is a local web app: ``isrstudio`` starts a server on 127.0.0.1 and opens
 the browser. You pick a folder of photos, it runs the job in the background,
@@ -39,16 +39,16 @@ SECTIONS = {
                "blurb": "Trace a site over its aerial photo and get sightlines, blind spots, camera placement, "
                         "access points and perimeter as a report for the client.",
                "new": "New survey"},
+    "stakeout": {"title": "Stakeout", "long": "Pattern of activity", "main": "report.html", "icon": "binoculars",
+                 "color": "#e08a00",
+                 "blurb": "Leave a camera on a gate or approach for a day or a week, then drop its photos here. See when "
+                          "the place is busy, dead, or visited out of hours, and time guard posts and patrols to match.",
+                 "new": "New stakeout"},
     "art": {"title": "Art", "long": "Stock and portfolio picks", "main": "gallery.html", "icon": "image",
             "color": "#e5484d",
             "blurb": "Rank a card of photos for stock libraries, prints or a portfolio, group near-duplicates, and "
                      "auto-edit the best frames.",
             "new": "New selection"},
-    "watch": {"title": "Watch", "long": "Stakeout: pattern of activity", "main": "report.html", "icon": "clock",
-              "color": "#e08a00",
-              "blurb": "Leave a camera on a gate or approach for a day or a week, then drop its photos here. See when "
-                       "the place is busy, dead, or visited out of hours, and time guard posts and patrols to match.",
-              "new": "New watch"},
 }
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,60}$")
 EXTS = (".jpg", ".jpeg")
@@ -64,6 +64,8 @@ class Studio:
 
     def __init__(self, workspace: Path):
         self.ws = Path(workspace).expanduser().resolve()
+        if (self.ws / "watch").is_dir() and not (self.ws / "stakeout").exists():
+            (self.ws / "watch").rename(self.ws / "stakeout")  # the section's earlier name
         for s in SECTIONS:
             (self.ws / s).mkdir(parents=True, exist_ok=True)
         self.tasks: dict[str, dict] = {}
@@ -103,7 +105,7 @@ class Studio:
         if section == "art":
             s = json.loads((d / "studio.json").read_text())["summary"]
             return f"{s['photos']} photos · top {s['top']} suggested"
-        if section == "watch":
+        if section == "stakeout":
             s = json.loads((d / "activity.json").read_text())["summary"]
             return f"{s['photos']} photos · {s['events']} movements over {s['days']:g} days"
         m = json.loads((d / "site.json").read_text())
@@ -134,6 +136,8 @@ class Studio:
         demo = bool(opts.get("demo"))
         if not demo and not src.is_dir():
             raise ValueError("Choose a folder of photos first.")
+        if section == "stakeout" and not demo:
+            parse_location(opts.get("location"))
         if section in ("sar", "survey") and not demo:
             _triage_cfg(opts)  # reject a misspelt colour now, not halfway through the job
         name = str(opts.get("name") or "").strip() or (DEMO_NAMES[section] if demo else src.name) or "Job"
@@ -155,7 +159,7 @@ class Studio:
                     src = self.ws / "_demo_photos" / section
                     if not any(src.glob("*.JPG")):
                         log("Painting a made-up set of photos to work on...")
-                        {"sar": demos.write_sar_demo, "art": demos.write_art_demo, "watch": demos.write_watch_demo}[section](src)
+                        {"sar": demos.write_sar_demo, "art": demos.write_art_demo, "stakeout": demos.write_watch_demo}[section](src)
                 RUNNERS[section](src, out, name, opts, log)
                 (out / "job.json").write_text(json.dumps({
                     "name": name, "section": section, "source": "" if demo and section == "survey" else str(src),
@@ -220,19 +224,37 @@ def run_art(src, out, name, opts, log):
     write_gallery(data, out)
 
 
-DEMO_NAMES = {"sar": "Demo search", "survey": "Demo property", "art": "Demo selection", "watch": "Demo gate, one week"}
+DEMO_NAMES = {"sar": "Demo search", "survey": "Demo property", "art": "Demo selection", "stakeout": "Demo gate, one week"}
 def run_watch_job(src, out, name, opts, log):
-    from .watch.pipeline import run_watch
-    from .watch.report import write_report
+    from .stakeout.pipeline import run_watch
+    from .stakeout.report import write_report
 
     c0, c1 = int(opts.get("closed_from", 20)) % 24, int(opts.get("closed_to", 6)) % 24
+    loc, weather = parse_location(opts.get("location")), bool(opts.get("weather"))
     if opts.get("demo"):
+        from . import demos
+
         opts = {**opts, "watching": "Front gate"}
+        loc, weather = (demos.LAT, demos.LON), demos.watch_demo_weather()
     write_report(run_watch(src, out, name=name, watching=str(opts.get("watching") or ""), closed_from=c0,
-                           closed_to=c1, log=log), out)
+                           closed_to=c1, log=log, location=loc, weather=weather), out)
 
 
-RUNNERS = {"sar": run_sar, "survey": run_survey_job, "art": run_art, "watch": run_watch_job}
+def parse_location(text) -> tuple[float, float] | None:
+    """ "51.752, -1.2577" -> (51.752, -1.2577). Empty is fine; nonsense is an error the user should see."""
+    text = str(text or "").strip()
+    if not text:
+        return None
+    try:
+        lat, lon = (float(x) for x in re.split(r"[,;\s]+", text.replace("°", ""))[:2])
+    except ValueError:
+        raise ValueError("Give the camera's location as latitude, longitude: for example 51.752, -1.2577")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("Latitude must be between -90 and 90, and longitude between -180 and 180.")
+    return lat, lon
+
+
+RUNNERS = {"sar": run_sar, "survey": run_survey_job, "art": run_art, "stakeout": run_watch_job}
 
 
 def list_dir(path: str | None) -> dict:
@@ -434,7 +456,7 @@ async function browse(path) {
 $("#go").addEventListener("click", () => begin(cur, {source: here, name: $("#f-name").value,
   colors: $("#f-colors").value.split(/[,;]/).map(s => s.trim()).filter(Boolean), ai: $("#f-ai").checked,
   detect: $("#f-detect").checked, build_map: $("#f-map").checked, top: +$("#f-top").value || 30,
-  watching: $("#f-watching").value, closed_from: +$("#f-c0").value, closed_to: +$("#f-c1").value}));
+  watching: $("#f-watching").value, location: $("#f-loc").value, weather: $("#f-wx").checked && !!$("#f-loc").value.trim(), closed_from: +$("#f-c0").value, closed_to: +$("#f-c1").value}));
 async function begin(section, opts) {
   let t; try { t = await api("/api/new", {section, ...opts}); } catch (e) { $("#new-err").textContent = e.message; if (!$("#dlg").open) toast(e.message); return; }
   $("#dlg").close(); $("#run-title").textContent = S[section].title + ": working…"; $("#log").textContent = ""; $("#run-err").textContent = "";
@@ -523,12 +545,17 @@ def home_html() -> str:
 <label class="check" data-only="survey"><input type="checkbox" id="f-map"><span>Build a 3-D map from these photos with OpenDroneMap
 <span class="muted">(needs Docker and many overlapping photos; can take an hour and wants 8 GB of memory or more. A folder that already holds an OpenDroneMap or WebODM result is used automatically.)</span></span></label>
 <label class="check" data-only="sar survey"><input type="checkbox" id="f-ai"><span>Also use the AI detector <span class="muted">(needs the optional AI install; slow on older computers)</span></span></label>
-<div class="fld" data-only="watch"><label for="f-watching">What is the camera pointed at? (optional)</label>
+<div class="fld" data-only="stakeout"><label for="f-watching">What is the camera pointed at? (optional)</label>
 <input type="text" id="f-watching" placeholder="e.g. Front gate, loading bay, north fence"></div>
-<div class="fld" data-only="watch"><label>Hours the site is meant to be closed</label>
+<div class="fld" data-only="stakeout"><label>Hours the site is meant to be closed</label>
 <div style="display:flex;gap:8px;align-items:center"><input type="number" id="f-c0" value="20" min="0" max="23" style="width:90px"><span>:00 to</span>
 <input type="number" id="f-c1" value="6" min="0" max="23" style="width:90px"><span>:00</span></div>
 <div class="hint">Movement in these hours is listed separately as out of hours.</div></div>
+<div class="fld" data-only="stakeout"><label for="f-loc">Where was the camera? (optional)</label>
+<input type="text" id="f-loc" placeholder="latitude, longitude, e.g. 51.752, -1.2577">
+<div class="hint">Used to work out sunrise, sunset and darkness for each photo. Right-click the spot in any map app to copy it.</div></div>
+<label class="check" data-only="stakeout"><input type="checkbox" id="f-wx" checked><span>Fetch the weather for those days to help set aside wind and rain
+<span class="muted">(needs the location and internet; sends only the location rounded to about 1 km and the dates to open-meteo.com)</span></span></label>
 <div class="fld" data-only="art"><label for="f-top">How many photos to suggest</label><input type="number" id="f-top" value="30" min="1" max="500"></div>
 <div class="err" id="new-err"></div></div>
 <div class="dlg-f"><button class="btn" id="cancel">Cancel</button><button class="btn primary" id="go">Start with this folder</button></div></dialog>

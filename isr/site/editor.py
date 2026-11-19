@@ -567,7 +567,7 @@ function renderSettings() {
       : "Base map made from angled drone shots only. Ground-level detail is in the right place, but roofs and treetops lean away from the drone by roughly their own height, so trace each building where its walls meet the ground. One photo taken straight down from above the site avoids this."}</p>`;
   renderStakeouts();
 }
-// stakeouts from the Watch section: attach one to the access point its camera was pointed at
+// stakeouts from the Stakeout section: attach one to the access point its camera was pointed at
 let watchJobs = null;
 async function renderStakeouts() {
   const el = $("#stk"); if (!el) return;
@@ -575,20 +575,20 @@ async function renderStakeouts() {
   let h = have.map((w, i) => `<div class="item" style="cursor:default"><span class="badge" style="--c:#e08a00">W</span><span class="t">${esc(w.name)}</span>
     <span class="d">${w.data.summary.events} movements over ${w.data.summary.days} days · watching ${esc((acc.find(a => a.id === w.access) || {name: "nothing marked"}).name)}</span>
     <button class="btn sm" data-unwatch="${i}">Remove</button></div>`).join("");
-  if (!C.base) { el.innerHTML = h + `<p class="help">Open this survey from ISRStudio to attach photos from a stakeout camera (the Watch section).</p>`; return; }
-  if (!watchJobs) { try { watchJobs = (await (await fetch("/api/home")).json()).jobs.watch || []; } catch (e) { watchJobs = []; } }
+  if (!C.base) { el.innerHTML = h + `<p class="help">Open this survey from ISRStudio to attach photos from a stakeout camera (the Stakeout section).</p>`; return; }
+  if (!watchJobs) { try { watchJobs = (await (await fetch("/api/home")).json()).jobs.stakeout || []; } catch (e) { watchJobs = []; } }
   const free = watchJobs.filter(j => !have.some(w => w.id === j.job));
   h += free.length ? `<div class="form"><label>Stakeout</label><select id="stk-job">${free.map(j => `<option value="${j.job}">${esc(j.name)}</option>`).join("")}</select>
       <label>It watched</label><select id="stk-acc"><option value="">(not an access point)</option>${acc.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
       <button class="btn wide" id="stk-add" style="justify-content:center">Attach to this survey</button></div>`
-    : `<p class="help">${watchJobs.length ? "Every stakeout is attached." : "No stakeouts yet. Run one from the Watch section on the home screen, then attach it here to add timing to the findings and the guard plan."}</p>`;
+    : `<p class="help">${watchJobs.length ? "Every stakeout is attached." : "No stakeouts yet. Run one from the Stakeout section on the home screen, then attach it here to add timing to the findings and the guard plan."}</p>`;
   el.innerHTML = h;
 }
 $("#p-settings").addEventListener("click", async ev => {
   if (ev.target.dataset.unwatch != null) { model.stakeouts.splice(+ev.target.dataset.unwatch, 1); schedule(30); return renderStakeouts(); }
   if (ev.target.id !== "stk-add") return;
   const job = $("#stk-job").value, access = $("#stk-acc").value;
-  try { const d = await (await fetch("/watch/" + job + "/activity.json")).json();
+  try { const d = await (await fetch("/stakeout/" + job + "/activity.json")).json();
     const data = {}; for (const k of ["name", "watching", "mode", "closed", "summary", "counts", "cover", "rate", "by_hour", "by_day", "advice"]) data[k] = d[k];
     data.out_of_hours = d.events.filter(e => e.out_of_hours).slice(0, 60).map(e => ({time: e.time, hour: e.hour}));
     (model.stakeouts = model.stakeouts || []).push({id: job, name: d.name, access, data}); toast("Stakeout attached"); schedule(30); renderStakeouts();

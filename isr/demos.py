@@ -149,6 +149,23 @@ def write_art_demo(folder: Path) -> list[Path]:
     return out
 
 
+WINDY_DAYS, WINDY_HOURS = (2, 6), (10, 16)  # Wednesday and Sunday, late morning to mid afternoon
+
+
+def watch_demo_weather() -> dict:
+    """The weather that goes with the demo week (made up, like the photos): two blustery days and a wet lunchtime."""
+    from datetime import datetime, timedelta
+
+    hours, t = {}, datetime(2026, 11, 9)
+    for _ in range(7 * 24):
+        windy = t.weekday() in WINDY_DAYS and WINDY_HOURS[0] <= t.hour < WINDY_HOURS[1]
+        wet = t.weekday() == 3 and 12 <= t.hour < 14
+        hours[t.strftime("%Y-%m-%dT%H")] = {"gust": 58.0 if windy else 14.0, "wind": 30.0 if windy else 8.0,
+                                             "rain": 1.8 if wet else 0.0, "snow": 0.0, "cloud": 90 if wet or windy else 30}
+        t += timedelta(hours=1)
+    return {"hours": hours, "utc_offset_h": -7.0, "timezone": "America/Denver", "source": "made-up weather for the demo"}
+
+
 def write_watch_demo(folder: Path) -> list[Path]:
     """A week of a trail camera on a gate: weekday rush hours, quiet weekends, and a few visits in the small hours.
 
@@ -170,15 +187,24 @@ def write_watch_demo(folder: Path) -> list[Path]:
     for gx in range(int(w * .50), int(w * .96), 22):  # railings
         base[int(h * .38):int(h * .62), gx:gx + 4] = (0.16, 0.17, 0.19)
     base[int(h * .38):int(h * .395), int(w * .50):int(w * .96)] = (0.16, 0.17, 0.19)
+    bush = ((xx - w * 0.10) / (w * 0.10)) ** 2 + ((yy - h * 0.74) / (h * 0.15)) ** 2 < 1  # a hedge in the corner
+    base[bush] = (0.16, 0.30, 0.15)
     base += rng.normal(0, 0.012, base.shape).astype(np.float32)
 
     def frame(t, kind):
         hour = t.hour + t.minute / 60
         light = float(np.clip(1.15 - abs(hour - 13) / 9.0, 0.25, 1.0))
         a = base * light
-        dark = hour < 6.2 or hour >= 20.5
+        dark = hour < 6.75 or hour >= 16.9  # November at this latitude
         im = _img(a + rng.normal(0, 0.008, a.shape).astype(np.float32))
         d = ImageDraw.Draw(im)
+        if kind == "wind":  # the hedge thrashing about: lots of small patches, a different lot each time
+            for _ in range(70):
+                bx, by = float(rng.uniform(w * 0.01, w * 0.19)), float(rng.uniform(h * 0.60, h * 0.88))
+                if bush[int(by), int(bx)]:
+                    r = float(rng.uniform(14, 34))
+                    g = int(rng.integers(25, 150) * light)
+                    d.ellipse((bx - r, by - r * .7, bx + r, by + r * .7), fill=(g // 2, g, g // 2))
         x = float(rng.uniform(w * 0.2, w * 0.9))
         if kind == "person":
             ph = float(rng.uniform(95, 135))
@@ -220,6 +246,11 @@ def write_watch_demo(folder: Path) -> list[Path]:
             shots.append((d0.replace(hour=21, minute=int(rng.integers(0, 40))), "person"))
         for _ in range(3):  # the trigger firing on nothing
             shots.append((d0.replace(hour=int(rng.integers(0, 24)), minute=int(rng.integers(0, 60))), "empty"))
+        if d0.weekday() in WINDY_DAYS:  # a blustery day: the hedge sets the camera off again and again
+            for hour in range(*WINDY_HOURS):
+                for _ in range(int(rng.integers(3, 6))):
+                    shots.append((d0.replace(hour=hour, minute=int(rng.integers(0, 60)), second=int(rng.integers(0, 60))),
+                                  "wind"))
     out = []
     for i, (t, kind) in enumerate(sorted(shots), 1):
         exif = Image.Exif()

@@ -551,7 +551,7 @@ def build_html(model: dict, an: Analysis, compare: dict | None = None) -> str:
 
     # activity over time, from attached stakeouts
     if r.get("activity"):
-        from ..watch.report import advice_html, heatmap_svg
+        from ..stakeout.report import advice_html, heatmap_svg
 
         b.append(H("Activity over time"))
         b.append('<p class="lead">What a fixed camera recorded over days: each square is one hour of one day of the week, '

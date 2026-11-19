@@ -177,7 +177,7 @@ def normalise(model: dict) -> dict:
 
     ids = {f["id"] for f in feats}
     watch = []
-    for w in model.get("stakeouts") or []:  # stakeout summaries attached from the Watch section
+    for w in model.get("stakeouts") or []:  # stakeout summaries attached from the Stakeout section
         d = w.get("data") if isinstance(w, dict) else None
         if not isinstance(d, dict) or not all(k in d for k in ("summary", "rate", "cover", "by_hour", "closed")):
             continue

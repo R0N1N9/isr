@@ -7,7 +7,7 @@ sections:
 |---|---|---|
 | **SAR** | Search and rescue: finding a missing person or a target of interest | Every photo scanned, hits ranked and placed on the map, a search report with coordinates, GPX/KML/CSV for ground teams |
 | **Survey** | Assessing the security posture of a site | Sightlines, blind spots, camera placement, access points and perimeter, as a report for the client |
-| **Watch** | A stakeout: a fixed camera left on a gate or approach for a day or a week | When the place is busy, dead, or visited out of hours, and what that means for posts and patrols |
+| **Stakeout** | A fixed camera left on a gate or approach for a day or a week | When the place is busy, dead, or visited out of hours, and what that means for posts and patrols |
 | **Art** | Stock libraries, prints and portfolios | Photos ranked for technical and artistic quality, near-duplicates grouped, the best frames auto-edited |
 
 Everything runs on a laptop with no internet connection. Nothing is uploaded, and nothing is ever
@@ -29,13 +29,13 @@ manager onto a section, or onto the New dialog, instead of browsing to it. Each 
 * **SAR** opens the review page. Confirm or dismiss candidates, then **Search report** writes a
   printable report of the confirmed finds.
 * **Survey** opens the plan editor. Trace the site, then **Generate report**.
-* **Watch** opens the activity report. Attach it to a survey to add timing to the guard plan.
+* **Stakeout** opens the activity report. Attach it to a survey to add timing to the guard plan.
 * **Art** opens the gallery. Pick favourites, compare originals with the edits.
 
 No photos to hand? Each section has **Try the demo**, which paints a made-up set and runs the real
 tools on it: a six-frame search leg with three people to find (SAR), a property with a hidden side
 door (Survey), a flight's worth of keepers, a burst and rejects to rank (Art), and a week of a trail
-camera on a gate with rush hours, quiet weekends and visits in the small hours (Watch).
+camera on a gate with rush hours, quiet weekends and visits in the small hours (Stakeout).
 
 Jobs are kept in `~/ISR-Studio/<section>/<job>/` and listed on the home screen, so you can reopen
 or delete them. Each job folder holds its report and exports and can be copied to a USB stick.
@@ -556,11 +556,11 @@ account: a camera at 2.7 m sees over a 1.2 m garden wall, a passer-by does not s
 
 ---
 
-## Watch: a stakeout camera's pattern of activity
+## Stakeout: a fixed camera's pattern of activity
 
 Point a camera at a gate, a door or an approach and leave it for a day or a week. A trail camera
 that fires on movement is ideal (it saves space); one that shoots every few minutes works too. Then
-give ISRStudio the folder of photos: **New watch**, or drag the folder or card onto the Watch section.
+give ISRStudio the folder of photos: **New stakeout**, or drag the folder or card onto the Stakeout section.
 
 It reads the time each photo was taken (from the camera's own stamp, or the file's date if there is
 none), compares every frame with the same view at nearby times to find real movement, and groups
@@ -572,13 +572,31 @@ movement less than a minute apart into one event. You get:
 * **What it means for guarding**: the busiest windows (when a posted guard earns most), whether
   weekends differ, movement in the small hours to time patrols for, and the dead hours.
 
+**Weather and light.** A camera left outside fires on plenty that is not a person. Give the
+camera's location (latitude, longitude) when you start the stakeout and two things happen:
+
+* the **sun's position** is worked out for every photo (no internet needed), so movements are
+  split into daylight and darkness and broad changes at dawn and dusk are recognised;
+* with *Fetch the weather* ticked, the hourly **weather history** for those days is fetched from
+  [Open-Meteo](https://open-meteo.com), a free open weather service that needs no account. Only
+  the location rounded to about a kilometre and the dates are sent.
+
+A change in the picture is then **set aside** rather than counted when it looks like weather or
+light: scattered patches instead of one shape; in a part of the view that changes far more on windy
+hours than calm ones (a hedge, a flag); a broad broken-up change at dawn or dusk; or one tiny
+change in a single frame during gusts or rain. Set-aside frames are shown at the end of the report
+with the reason, so you can check them. In the demo week, two blustery days set the camera off on a
+hedge about fifty times; with the weather history those are set aside, and without it most of them
+are counted as movement.
+
 **Linking it to a survey.** In the Survey editor's **Site** tab, attach a stakeout and say which
 door or gate it watched. The survey then reports movement while closed as a finding, shows the
 activity grid in the client report, and adds timing to the guard plan: which post sees that
 entrance, when it is busiest, and when to time a patrol pass.
 
-Limits: it counts changes in the picture, so wind, rain, headlights and moving shadows cause false
-movements and a small distant figure can be missed. Nobody is identified. One camera sees one view.
+Limits: it counts changes in the picture. The weather and light checks reduce false movements but
+do not remove them: headlights, a shadow crossing and animals still count, and a small distant
+figure can be missed. Nobody is identified. One camera sees one view.
 Photos only for now, not video. Only watch a site you are engaged to assess, with the owner's
 agreement, and follow local rules on recording people.
 

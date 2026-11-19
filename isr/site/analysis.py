@@ -810,7 +810,7 @@ class Analysis:
 
     def _activity(self, access):
         """Attached stakeouts, each tied to the access point it watched, boiled down for the guard plan."""
-        from ..watch.pipeline import _windows, hours
+        from ..stakeout.pipeline import _windows, hours
 
         by_id = {a["id"]: a for a in access}
         out = []

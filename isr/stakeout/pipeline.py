@@ -81,8 +81,14 @@ def hours(a: int, b: int) -> str:
 
 
 def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_from: int = 20, closed_to: int = 6,
-              log=print) -> dict:
-    """Analyse the folder and write activity.json, scene.jpg, heat.png and frames/ into ``out``."""
+              log=print, location: tuple[float, float] | None = None, weather=None) -> dict:
+    """Analyse the folder and write activity.json, scene.jpg, heat.png and frames/ into ``out``.
+
+    ``location`` (lat, lon) switches on the sun: darkness and twilight are worked
+    out for each frame. ``weather`` is True to fetch the hourly history for the
+    dates watched (needs internet), or an already-fetched table. Both are used
+    to set aside movement that is probably the weather or the light.
+    """
     t0 = time.time()
     src, out = Path(src), Path(out)
     files = sorted(p for p in src.rglob("*") if p.suffix.lower() in EXTS and not p.name.startswith(".")
@@ -114,7 +120,10 @@ def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_f
 
     # -- movement in each frame: compare with the same view at the nearest other times --------------------
     log("Looking for movement...")
-    heat = np.zeros((H, W), np.float32)
+    masks: dict[int, np.ndarray] = {}  # packed movement mask per frame, for the second look
+    nblob = np.zeros(n, np.int32)
+    share = np.zeros(n, np.float32)  # how much of the change is in its largest piece
+    cx = np.zeros(n, np.float32)
     moved = np.zeros(n, bool)
     frac = np.zeros(n, np.float32)
     boxes = [None] * n
@@ -138,10 +147,54 @@ def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_f
         if f == 0 or f > 0.45:  # nothing, or the whole view changed (light switched, camera knocked)
             continue
         moved[i], frac[i] = True, f
-        heat += keep
+        masks[i] = np.packbits(keep)
+        nblob[i] = int((sizes >= 0.004 * W * H).sum())
+        share[i] = float(sizes.max() / max(1.0, keep.sum()))
         big = lab == int(np.argmax(sizes)) + 1
         jj, ii = np.nonzero(big)
+        cx[i] = float(ii.mean()) / W
         boxes[i] = (ii.min() / W, jj.min() / H, (ii.max() + 1) / W, (jj.max() + 1) / H)
+    unpack = lambda i: np.unpackbits(masks[i])[: H * W].reshape(H, W).astype(bool)  # noqa: E731
+
+    # -- the sky: sun for every frame, weather for every hour ---------------------------------------------
+    from . import environment as E
+
+    wx, wx_note, offset = None, "", None
+    if weather is True:
+        if not location:
+            wx_note = "No weather: the camera's location was not given."
+        else:
+            try:
+                log("Fetching weather history for the dates watched...")
+                wx = E.fetch_weather(location[0], location[1], times[0].date(), times[-1].date())
+            except E.WeatherError as e:
+                wx_note = f"Weather history could not be fetched ({e}). Movements were judged without it."
+                log("  " + wx_note)
+    elif isinstance(weather, dict):
+        wx = weather
+    if wx:
+        offset = wx.get("utc_offset_h")
+    if location and offset is None:
+        offset = E.guess_utc_offset(location[1])
+    hour_wx = [(wx["hours"].get(t.strftime("%Y-%m-%dT%H")) if wx else None) for t in times]
+    gusty = np.array([bool(h and h["gust"] >= E.GUSTY_KMH) for h in hour_wx])
+    wet = np.array([bool(h and (h["rain"] >= E.WET_MM or h["snow"] > 0)) for h in hour_wx])
+    elev = np.array([E.sun_elevation(location[0], location[1], t, offset) for t in times]) if location else None
+
+    # Part of the view that moves when it blows: changed far more often in gusty hours than in calm ones.
+    wind_zone = None
+    gm, cm = [i for i in masks if gusty[i]], [i for i in masks if not gusty[i]]
+    if len(gm) >= 6 and int((~gusty).sum()) >= 6:
+        fg = sum(unpack(i).astype(np.float32) for i in gm) / max(1, int(gusty.sum()))
+        fc = (sum(unpack(i).astype(np.float32) for i in cm) if cm else np.zeros((H, W), np.float32)) / int((~gusty).sum())
+        wind_zone = (fg >= 0.2) & (fg >= 3 * fc + 0.05)
+        if wind_zone.mean() < 0.002:
+            wind_zone = None
+    in_zone = np.zeros(n, np.float32)
+    if wind_zone is not None:
+        for i in masks:
+            m = unpack(i)
+            in_zone[i] = float((m & wind_zone).sum()) / max(1, int(m.sum()))
 
     # -- events ---------------------------------------------------------------------------------------
     events, cur = [], None
@@ -149,17 +202,56 @@ def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_f
         if cur and ts[i] - cur["end_ts"] <= EVENT_GAP_S:
             cur["end_ts"] = ts[i]
             cur["frames"] += 1
+            cur["idx"].append(int(i))
             if frac[i] > cur["size"]:
                 cur["size"], cur["best"] = float(frac[i]), int(i)
         else:
-            cur = {"start_ts": ts[i], "end_ts": ts[i], "frames": 1, "size": float(frac[i]), "best": int(i)}
+            cur = {"start_ts": ts[i], "end_ts": ts[i], "frames": 1, "size": float(frac[i]), "best": int(i),
+                   "idx": [int(i)]}
             events.append(cur)
+
+    # -- is it somebody, or the weather and the light? ------------------------------------------------------
+    for e in events:
+        ix = e["idx"]
+        b = e["best"]
+        conf, why = 0.8, []
+        travel = float(cx[ix].max() - cx[ix].min()) if len(ix) > 1 else 0.0
+        scattered = float(np.median(nblob[ix])) >= 4 and float(np.median(share[ix])) < 0.5
+        if scattered:
+            conf -= 0.45
+            why.append("scattered patches of change, like foliage or rain, not one shape")
+        if float(np.median(in_zone[ix])) >= 0.6:
+            conf -= 0.5
+            why.append("in a part of the view that moves when it is windy")
+        if gusty[b]:
+            conf -= 0.15
+            why.append(f"gusts of {hour_wx[b]['gust']:.0f} km/h that hour")
+        if wet[b]:
+            conf -= 0.15
+            why.append("snow that hour" if hour_wx[b]["snow"] > 0 else f"rain that hour ({hour_wx[b]['rain']:.1f} mm)")
+        if elev is not None and abs(float(elev[b])) < 6 and e["size"] > 0.12 and (nblob[b] >= 3 or share[b] < 0.7):
+            conf -= 0.35
+            why.append("a broad, broken-up change while the light was changing at dawn or dusk")
+        if len(ix) == 1 and e["size"] < 0.008:
+            conf -= 0.2
+            why.append("one small change in a single frame")
+        if travel >= 0.05:
+            conf += 0.2
+        e["confidence"] = round(max(0.0, min(1.0, conf)), 2)
+        e["doubtful"] = conf < 0.55
+        e["why"] = why if e["doubtful"] else []
+        e["dark"] = bool(elev[b] < -6) if elev is not None else bool(night[b])
+    all_events, events = events, [e for e in events if not e["doubtful"]]
+    heat = np.zeros((H, W), np.float32)
+    for e in events:
+        for i in e["idx"]:
+            heat += unpack(i)
     closed = np.zeros(24, bool)
     h = closed_from % 24
     while h != closed_to % 24:
         closed[h] = True
         h = (h + 1) % 24
-    for e in events:
+    for e in all_events:
         t = times[e["best"]]
         e.update(time=t.isoformat(sep=" ", timespec="minutes"), weekday=t.weekday(), hour=t.hour,
                  night=bool(night[e["best"]]), out_of_hours=bool(closed[t.hour]),
@@ -203,6 +295,7 @@ def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_f
         Image.fromarray(rgba, "RGBA").resize(scene.size, Image.BICUBIC).save(out / "heat.png")
     shown = sorted([e for e in events if e["out_of_hours"]], key=lambda e: -e["size"])[:24]
     shown += sorted([e for e in events if not e["out_of_hours"]], key=lambda e: -e["size"])[:12]
+    shown += sorted([e for e in all_events if e["doubtful"]], key=lambda e: e["confidence"])[:16]
     for k, e in enumerate(sorted(shown, key=lambda e: e["start_ts"]), 1):
         i = e["best"]
         try:
@@ -223,6 +316,8 @@ def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_f
         "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "seconds": round(time.time() - t0, 1),
         "closed": [closed_from % 24, closed_to % 24],
         "summary": {"photos": n, "with_movement": int(moved.sum()), "events": len(events),
+                    "set_aside": len(all_events) - len(events),
+                    "in_darkness": sum(e["dark"] for e in events),
                     "first": times[0].isoformat(sep=" ", timespec="minutes"),
                     "last": times[-1].isoformat(sep=" ", timespec="minutes"), "days": round(days, 1),
                     "per_day": round(len(events) / days, 1),
@@ -231,10 +326,27 @@ def run_watch(src: Path, out: Path, name: str = "", watching: str = "", closed_f
         "counts": counts.astype(int).tolist(), "cover": cover.astype(int).tolist(),
         "rate": [[round(float(v), 2) for v in row] for row in rate],
         "by_hour": [round(float(v), 2) for v in by_hour], "by_day": [round(float(v), 1) for v in by_day],
-        "events": [{k: e[k] for k in ("time", "weekday", "hour", "night", "out_of_hours", "frames", "seconds", "size",
-                                      "frame") if k in e} for e in events],
+        "events": [{k: e[k] for k in ("time", "weekday", "hour", "night", "dark", "out_of_hours", "frames", "seconds",
+                                      "size", "confidence", "frame") if k in e} for e in events],
+        "set_aside": [{k: e[k] for k in ("time", "weekday", "hour", "night", "frames", "size", "confidence", "why",
+                                         "frame") if k in e} for e in all_events if e["doubtful"]],
         "has_heat": bool(heat.max() > 0),
+        "location": [round(location[0], 5), round(location[1], 5)] if location else None,
+        "weather": None, "weather_note": wx_note, "sun": None,
     }
+    if wx:
+        span = [h for k, h in wx["hours"].items() if times[0].strftime("%Y-%m-%dT%H") <= k <= times[-1].strftime("%Y-%m-%dT%H")]
+        data["weather"] = {"source": wx.get("source", ""), "timezone": wx.get("timezone", ""), "hours": len(span),
+                           "gusty_hours": sum(h["gust"] >= E.GUSTY_KMH for h in span),
+                           "wet_hours": sum(h["rain"] >= E.WET_MM or h["snow"] > 0 for h in span),
+                           "max_gust": round(max((h["gust"] for h in span), default=0)),
+                           "rain_mm": round(sum(h["rain"] for h in span), 1),
+                           "wind_zone_pct": round(100 * float(wind_zone.mean()), 1) if wind_zone is not None else 0}
+    if location:
+        mid = times[len(times) // 2].date()
+        rise, sett = E.sun_times(location[0], location[1], mid, offset)
+        data["sun"] = {"sunrise": rise, "sunset": sett, "on": mid.isoformat(), "clock_exact": bool(wx),
+                       "utc_offset_h": offset}
     data["advice"] = advise(data)
     (out / "activity.json").write_text(json.dumps(data, indent=1))
     log(f"{len(events)} events over {days:.1f} days ({data['summary']['out_of_hours']} out of hours)")
@@ -284,6 +396,30 @@ def advise(d: dict) -> list[dict]:
                                 f"patrol passes of {what} for then, or put this view on an alarm.")
     else:
         add("out_of_hours", f"Nothing moved between {c0:02d}:00 and {c1:02d}:00 in the period watched.")
+    if s.get("set_aside"):
+        reasons = {}
+        for e in d.get("set_aside", []):
+            for w in e["why"][:1]:
+                reasons[w.split(",")[0].split(" that hour")[0]] = reasons.get(w.split(",")[0].split(" that hour")[0], 0) + 1
+        top = max(reasons, key=reasons.get) if reasons else "weather or light"
+        add("info", f"{s['set_aside']} more change{'s' if s['set_aside'] != 1 else ''} in the picture "
+                    f"{'were' if s['set_aside'] != 1 else 'was'} set aside as probably not somebody (most often: {top}). "
+                    "They are not counted above; the frames are at the end of this report to check.")
+    sun = d.get("sun")
+    if sun and sun["sunrise"]:
+        add("info", f"On {sun['on']} the sun rose at {sun['sunrise']} and set at {sun['sunset']}"
+                    f"{'' if sun['clock_exact'] else ' (clock time estimated from longitude, so possibly an hour out)'}. "
+                    f"{s['in_darkness']} of the movements counted happened in full darkness: lighting and night-capable "
+                    "cameras matter for exactly those.")
+    wxs = d.get("weather")
+    if wxs and (wxs["gusty_hours"] or wxs["wet_hours"]):
+        add("info", f"Weather over the period ({wxs['source']}): {wxs['gusty_hours']} windy hour"
+                    f"{'s' if wxs['gusty_hours'] != 1 else ''} (gusts to {wxs['max_gust']} km/h) and {wxs['wet_hours']} wet "
+                    f"hour{'s' if wxs['wet_hours'] != 1 else ''} ({wxs['rain_mm']} mm)."
+                    + (f" {wxs['wind_zone_pct']:g}% of the view was found to move with the wind and is discounted."
+                       if wxs["wind_zone_pct"] else ""))
+    elif d.get("weather_note"):
+        add("info", d["weather_note"])
     quiet = [w for w in _windows((by_hour == 0) & (cover.sum(0) > 0)) if w[1] - w[0] >= 3 or (w[1] - w[0]) % 24 >= 3]
     if quiet:
         a, b = max(quiet, key=lambda w: (w[1] - w[0]) % 24 or 24)
