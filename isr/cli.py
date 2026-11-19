@@ -1,4 +1,4 @@
-"""Command line entry point: ``isr triage | plan | track | studio | enhance | info``."""
+"""Command line entry point: ``isr triage | plan | track | studio | enhance | site | info``."""
 
 from __future__ import annotations
 
@@ -359,6 +359,97 @@ def cmd_track_predict(a) -> int:
 
 
 # --------------------------------------------------------------------------
+# site
+# --------------------------------------------------------------------------
+
+
+def _project(a) -> Path | None:
+    d = Path(a.project).expanduser()
+    if not (d / "site.json").exists():
+        print(f"error: {d} is not a survey project (no site.json). Create one with: survey new PHOTOS -o {d}",
+              file=sys.stderr)
+        return None
+    return d
+
+
+def cmd_site(a) -> int:
+    from .site import model as SM
+
+    if a.action in ("new", "survey"):
+        from .site.survey import run_survey
+
+        src = Path(a.source).expanduser()
+        if not src.exists():
+            print(f"error: {src} does not exist", file=sys.stderr)
+            return 2
+        out = Path(a.output).expanduser() if a.output else Path.cwd() / f"site_{time.strftime('%Y%m%d_%H%M%S')}"
+        cfg = None
+        if not a.no_detect:
+            from .triage.detectors import parse_color
+            from .triage.pipeline import TriageConfig
+
+            for c in a.color:
+                try:
+                    parse_color(c)
+                except ValueError as e:
+                    print(f"error: {e}", file=sys.stderr)
+                    return 2
+            cfg = TriageConfig(colors=a.color, sensitivity=a.sensitivity, ai=a.ai, ai_model=a.ai_model,
+                               ground_offset_m=a.ground_offset)
+        model = run_survey(src, out, name=a.name, ground_offset_m=a.ground_offset, detect=not a.no_detect,
+                           detect_cfg=cfg)
+        if not model["photos"]:
+            print("  ! no photos found; the plan can still be sketched on a blank grid")
+        elif not model["basemap"]:
+            print("  ! no drone photos looking down at the ground, so there is no base map. Sketch the plan on\n"
+                  "    the grid, using the photo positions as a guide.")
+        elif not model["basemap"]["straight_down"]:
+            print("  ! base map built from angled shots only. The ground is placed correctly, but roofs and\n"
+                  "    treetops lean away from the drone by roughly their own height: trace buildings where the\n"
+                  "    walls meet the ground. One photo taken straight down from above the site avoids this.")
+        if model.get("detections"):
+            print(f"  {len(model['detections'])} possible people, vehicles or objects found in the drone photos: "
+                  "confirm or dismiss each one in the editor.")
+        print(f"Project: {out}")
+        if a.no_edit:
+            print(f"Next: survey edit {out}")
+            return 0
+        a.project = str(out)
+        a.action = "edit"
+
+    if a.action == "demo":
+        from .site.demo import build_demo
+        from .site.report import write_report
+
+        out = Path(a.output).expanduser()
+        model = build_demo(out)
+        report = write_report(model, out)
+        print(f"Demo project: {out}\nReport: {report}")
+        if a.open:
+            webbrowser.open(report.resolve().as_uri())
+        if not a.edit:
+            print(f"Open it in the editor with: survey edit {out}")
+            return 0
+        a.project, a.no_browser = str(out), False
+
+    d = _project(a)
+    if d is None:
+        return 2
+    if a.action == "report":
+        from .site.report import write_report
+
+        report = write_report(SM.load(d / "site.json"), d)
+        print(f"Report: {report}\nExports: {d}/site.(geojson|kml), assessment.(csv|json)")
+        if a.open:
+            webbrowser.open(report.resolve().as_uri())
+        return 0
+    from .site.server import serve
+
+    serve(d, port=a.port, open_browser=not a.no_browser)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # info
 # --------------------------------------------------------------------------
 
@@ -522,6 +613,39 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--open", action="store_true", help="open the map in a browser when done")
     tp.set_defaults(func=cmd_track_predict)
 
+    si = sub.add_parser("site", help="site security assessment: survey photos -> site plan -> report")
+    ss = si.add_subparsers(dest="action", required=True)
+    sv = ss.add_parser("new", aliases=["survey"], help="read hand-flown drone and walk-round photos, build the base map and open the editor",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    sv.add_argument("source", help="folder of photos (searched recursively)")
+    sv.add_argument("-o", "--output", help="project folder (default ./site_<timestamp>); re-run to add photos")
+    sv.add_argument("--name", help="site name for the report")
+    sv.add_argument("--ground-offset", type=float, default=0.0,
+                    help="height of the site above (+) or below (-) the drone's take-off point, metres")
+    sv.add_argument("--no-detect", action="store_true",
+                    help="do not look for people, vehicles and objects in the drone photos")
+    sv.add_argument("-c", "--color", action="append", default=[], metavar="COLOUR",
+                    help="also look for this colour (clothing, a vehicle): a name such as red, or #rrggbb; repeatable")
+    sv.add_argument("--sensitivity", type=float, default=1.0, help="detector sensitivity: 1.5 flags more, 0.7 fewer")
+    sv.add_argument("--ai", action="store_true", help="also run the AI person/object detector (needs the [ai] extra)")
+    sv.add_argument("--ai-model", default="yolov8n.pt", help="weights for --ai")
+    sv.add_argument("--no-edit", action="store_true", help="just build the project, do not open the editor")
+    se = ss.add_parser("edit", help="open a project in the editor (local web page)",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    sr = ss.add_parser("report", help="re-run the analysis and write report.html and the exports")
+    sr.add_argument("--open", action="store_true", help="open the report in a browser when done")
+    for sp in (se, sr):
+        sp.add_argument("project", help="project folder (contains site.json)")
+    sd = ss.add_parser("demo", help="build a made-up example property to try the tool",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    sd.add_argument("-o", "--output", default="site_demo", help="project folder")
+    sd.add_argument("--open", action="store_true", help="open the report in a browser")
+    sd.add_argument("--edit", action="store_true", help="then open the editor")
+    for sp in (sv, se, sd):
+        sp.add_argument("--port", type=int, default=8765, help="local port for the editor")
+        sp.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    si.set_defaults(func=cmd_site)
+
     i = sub.add_parser("info", help="show the metadata the tools read from a photo")
     i.add_argument("photos", nargs="+")
     i.set_defaults(func=cmd_info)
@@ -531,6 +655,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     a = build_parser().parse_args(argv)
     return a.func(a) or 0
+
+
+def survey_main(argv=None) -> int:
+    """The ``survey`` command: Ronin Sec Survey on its own, the same as ``isr site ...``."""
+    return main(["site", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # ISR tools for the DJI Mavic 3
 
-Offline field and studio tools for a Mavic 3 + DJI RC:
+Offline field and studio tools for a Mavic 3 + DJI RC (the site assessment also takes phone photos):
 
 1. **`isr triage`**: scans every photo on an SD card or folder for possible people and person-related
    objects (clothing, packs, tarps, tents, vehicles). It ranks the hits, places each one on the map,
@@ -17,6 +17,10 @@ Offline field and studio tools for a Mavic 3 + DJI RC:
    `isr plan` can fly next.
 5. **`isr enhance`**: light, professional automatic touch-ups (white balance, dehaze, tone, clarity,
    vibrance, horizon straightening, sharpening) written to new files with all metadata kept.
+
+6. **`survey`** (Ronin Sec Survey): a site security assessment. Walk or fly a property, drop the photos in, trace the
+   plan over the stitched aerial image, and get a report of sightlines, blind spots, camera
+   placement and access points.
 
 Everything runs on a laptop with no internet connection. Nothing is ever written to the SD card.
 
@@ -422,10 +426,140 @@ from the DNG in Lightroom or Capture One. Studio's ranking is still the fast way
 
 ---
 
+## Survey: site security assessment
+
+**Ronin Sec Survey.** Installed as its own command, `survey` (the same thing as `isr site`).
+
+For a property you own or are responsible for: where can someone approach unseen, which doors and
+gates are unwatched, and where would cameras do the most good.
+
+```bash
+survey demo --edit               # a made-up property, to see how it works
+survey new E:\DCIM -o my_site --name "12 Mill Lane"
+```
+
+![Site editor](docs/site_editor.jpg)
+
+### 1. Capture
+
+No mapping mission or automated flight is needed. Fly by hand and take ordinary photos:
+
+| Shot | How | What it gives |
+|---|---|---|
+| **One from above** (best) | Climb to 50–100 m over the middle of the property, tilt the gimbal fully down (−90°), take one photo that includes the street outside. | A clean, to-scale, north-up base map to draw on |
+| **A lap around the building** | Circle at 30–50 m with the camera tilted 40–60° down, a photo every quarter turn or so. | Fills in the base map if there is no shot from above; shows walls, doors and what is under eaves and trees; attached as evidence in the report |
+| **Phone photos on foot** (optional) | Location on. Each door, gate, side passage and fence line, and the view in from the street. | Placed on the map with the direction the camera was pointing |
+
+Put all the JPEGs in one folder. The survey works out which is which from the gimbal angle and
+height recorded in each photo.
+
+With **only angled shots**, the map is still built: each patch of ground is taken from the photo that
+looks at it most steeply. Ground-level detail lands in the right place, but anything tall leans away
+from the drone by roughly its own height, so trace buildings where the walls meet the ground. Photos
+tilted less than 35° below the horizon show too little ground and are used as evidence only.
+With **phone photos only** there is no aerial image, so you sketch the plan on a 10 m grid using the
+photo positions as a guide.
+
+### 2. Draw the plan
+
+`survey new` builds the base map and opens the editor in your browser (a page served from
+your own machine at `127.0.0.1`; nothing is uploaded). Trace what you see:
+
+| Tool | Key | Draw |
+|---|---|---|
+| Boundary | `B` | The property line. Only ground inside it is assessed. |
+| Building | `H` | Each building; set its height. |
+| Wall, fence, hedge | `W` | Anything along a line. Pick solid wall, solid fence, see-through fence or hedge, and its height. |
+| Trees, shrubs | `G` | Planting someone could stand in or behind. |
+| Street, footpath | `S` | Where the public walks past. |
+| Door, window, gate | `A` | Every way in. Snaps to the nearest wall or fence. |
+| Camera | `C` | Existing cameras. Drag the handle to aim; set lens angle, range and height. |
+
+Double-click or `Enter` finishes a shape, `Esc` cancels, `Delete` removes the selected item,
+`Ctrl+Z` undoes. Drag corners to reshape; drag the hollow dots to add a corner. Every change is saved
+to `site.json` and the findings on the right update as you draw, so you can try things: lower a
+hedge, move a camera, add a recommended camera to the plan and see what is still unseen.
+
+Re-run `survey new` on the same project folder to add photos; the plan is kept.
+`survey edit my_site` reopens it later.
+
+### People, vehicles and objects in the photos
+
+Survey runs the same detectors as `isr triage` over the drone photos and puts every hit on the site
+plan, so a person or a vehicle is reported by where they are on the site, not just by coordinates:
+inside or outside the boundary, on camera or in ground nobody can see, how far from the nearest door
+or gate, and whether it is against a fence. Something photographed several times is one hit.
+
+In the editor each hit appears as a pink marker and a card with a close-up. **Confirm** it and say
+what it is (person, vehicle, object) or **Dismiss** it. Expect false hits: the detector flags
+anything whose colour stands out, including roof edges and garden furniture. Only confirmed hits
+reach the report, under *Seen during the survey*, and a confirmed object left against a fence, or
+anything confirmed in unobserved ground, becomes a finding.
+
+```bash
+survey new E:\DCIM -o my_site -c red        # also look for a known colour (clothing, a vehicle)
+survey new E:\DCIM -o my_site --ai          # add the AI person/object detector
+survey new E:\DCIM -o my_site --no-detect   # plan and report only
+```
+
+`-c`, `--sensitivity` and `--ai` behave as described under [Detectors](#detectors). To search open
+country for a missing person, `isr triage` and `isr plan` remain the tools for that job.
+
+### 3. Report
+
+**Generate report** (or `survey report my_site --open`) writes into the project folder:
+
+| File | Use |
+|---|---|
+| `report.html` | The assessment, written to hand to a client. No scripts, works offline; **Print / save PDF** in the page gives a PDF. |
+| `site.geojson`, `site.kml` | Plan, cameras, access points and blind spots for Google Earth / QGIS |
+| `assessment.csv` | One row per access point, blind spot, camera and perimeter opening |
+| `assessment.json`, `site.json` | Everything, for your own tooling |
+
+![Site report](docs/site_report.jpg)
+
+Reports are headed **Ronin Sec** by default. Fill in the client, site address, your name and a job
+reference under **Site** in the editor (and change "Prepared by" there if a job goes out under
+another name). Notes typed against any item (a damaged fence panel, a gate that does
+not latch) are printed beside it.
+
+The report covers:
+
+* **Priority findings**: a ranked list, each with what to do about it.
+* **Sightlines**: the ground a passer-by on the street or an occupant at a window can see, and a
+  what-if table of how much each hedge, fence or planting hides.
+* **Blind spots**: every pocket nobody can see, with its size, what screens it, which doors it
+  reaches, and its coordinates.
+* **Camera placement**: recommended mounting points on building corners and walls with height, aim
+  and what each one covers, chosen to deal with the worst-exposed access points first.
+* **Access points**: for each door, window, gate and driveway: on camera or not, seen from the
+  street or not, how much hidden ground surrounds it, and the survey photos that show it.
+* **Seen during the survey**: confirmed people, vehicles and objects, each with a close-up and where
+  it was in relation to the plan.
+* **Perimeter**: a map of the boundary with every opening marked, how much of it is closed, each gap
+  not marked as a gate with its length and position, and a schedule of every wall, fence and hedge
+  with type, height and length.
+
+### How it works, and its limits
+
+The plan is turned into a 0.5 m grid of obstruction heights. A spot counts as seen when a straight
+line from the observer to a person standing there clears everything in between, taking height into
+account: a camera at 2.7 m sees over a 1.2 m garden wall, a passer-by does not see over a 1.8 m hedge.
+
+* **The tool measures the plan you draw; it does not recognise buildings or fences in the photos.**
+  Results are as good as the tracing and the heights you enter.
+* Positions come from consumer GPS and are good to a few metres. The ground is treated as flat.
+* Camera coverage is geometric: an unobstructed view within the stated range and angle. It says
+  nothing about image quality, night performance or whether anyone reviews the footage.
+* Lighting, locks, glazing, alarms and upper floors are not assessed. They need a walk-through.
+
+---
+
 ## Other commands
 
 ```bash
 isr info photo.JPG       # show what the tools read from a photo (GPS, altitude, gimbal, scale)
+survey new --help
 isr triage --help
 isr plan grid --help
 ```
@@ -442,7 +576,10 @@ The tests generate synthetic DJI photos with real EXIF and XMP metadata and know
 the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
 that edits keep metadata and never touch the originals, reference-photo matching, and the movement
 model (walking times against Tobler's formula, river barriers and bridges, uphill vs downhill, road
-routing, corridors, probability maps and segment ranking).
+routing, corridors, probability maps and segment ranking). The site tests build the demo property
+(`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
+angled shots alone), that hidden doors rank highest and the recommended cameras cover them, the
+report, and the editor server.
 
 ## Safety and legal
 
