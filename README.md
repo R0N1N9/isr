@@ -754,6 +754,24 @@ pip install -e ".[dev]"
 pytest
 ```
 
+Project layout:
+
+```
+isr/
+  cli.py        the `isr` and `survey` commands
+  camera.py     DJI EXIF/XMP metadata and pixel-to-ground projection
+  geo.py        local tangent-plane geodesy helpers
+  ui.py         shared design system for the offline HTML pages
+  triage/       detectors, reference-photo search, review page, GPX/KML/CSV export
+  planner/      mapping grids, SAR patterns, DJI waypoint .kmz
+  track/        sightings, terrain and trail/road model, probability maps, segment ranking
+  ml/           ONNX detector, datasets and importers, verifiers, scorecard, quantisation
+  studio/       aesthetic ranking, burst grouping, gallery, enhance
+  site/         site survey model, line-of-sight analysis, plan editor, report
+tests/          pytest suite with synthetic DJI photos (tests/synth.py)
+docs/           screenshots used in this README
+```
+
 The tests generate synthetic DJI photos with real EXIF and XMP metadata and known targets
 (`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
 the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
