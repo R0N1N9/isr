@@ -29,7 +29,7 @@ from .site.server import LocalHandler, bind, guarded, project_get, project_post,
 from .ui import APP_NAME, ICON_SVG, LOGO, icon, page, theme_button
 
 SECTIONS = {
-    "sar": {"title": "SAR", "long": "Search and rescue", "main": "report.html", "icon": "target", "color": "#12a150",
+    "sar": {"title": "SAR", "long": "Search and rescue", "main": "report.html", "icon": "radar", "color": "#12a150",
             "blurb": "Scan every photo for a missing person or a target of interest. Hits are ranked, placed on "
                      "the map, and written up as a search report with coordinates for ground teams.",
             "new": "New search"},
@@ -505,6 +505,13 @@ dialog::backdrop{background:rgba(5,6,8,.55);backdrop-filter:blur(6px)}
 .fld input[type=text],.fld input[type=number]{border-radius:11px;height:38px;background:color-mix(in srgb,var(--surface) 60%,transparent)}
 .picker,.dropzone{border-radius:14px}
 @media (max-width:700px){.wrap{padding:26px 18px 60px}.hero h1{font-size:32px}.topbar{padding:12px 18px}}
+/* the SAR mark is a radar: the sweep turns and a ping spreads from it */
+.sect[data-k="sar"] .ico{position:relative;overflow:visible}
+.sect[data-k="sar"] .ico svg{animation:sweep 5s linear infinite}
+.sect[data-k="sar"] .ico::after{content:"";position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;
+  border:1.5px solid var(--c);opacity:0;animation:ping 2.5s ease-out infinite;pointer-events:none}
+@keyframes sweep{to{transform:rotate(360deg)}}
+@keyframes ping{0%{transform:scale(.5);opacity:.75}80%,100%{transform:scale(2.6);opacity:0}}
 /* ---- square corners ---- */
 .sect,.art,dialog,.picker,.dropzone,#log{border-radius:4px}
 .sect-h .ico,.art-h .ico,.btn,#art-export,.job,.pic,.fld input[type=text],.fld input[type=number]{border-radius:3px}
@@ -643,7 +650,7 @@ def home_html() -> str:
 <p>{s["blurb"]}</p><div class="acts"><button class="btn primary" data-new="{k}">{icon("plus")}{s["new"]}</button>{demo}</div></div>
 <div class="jobs" id="jobs-{k}"></div></section>''')
     body = f'''<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME}</div></div><div class="spacer"></div>
-<button class="btn ghost" id="quit" title="Stop the app">{icon("power")}<span class="lbl">Quit</span></button>{theme_button()}</header>
+{theme_button()}<button class="btn ghost" id="quit" title="Stop the app">{icon("power")}<span class="lbl">Quit</span></button></header>
 <div class="wrap">
 <div class="cols">{"".join(cards)}</div>
 <section class="art"><div class="art-h"><div class="ico">__ART__</div><div class="grow"><h2>Art <span class="long" id="art-count"></span></h2>

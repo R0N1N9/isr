@@ -34,6 +34,7 @@ ICONS = {
     "plus": '<path d="M12 5v14M5 12h14"/>',
     "trash": '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
     "power": '<path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>',
+    "radar": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12 18.4 5.6A9 9 0 0 1 21 12z" fill="currentColor" fill-opacity=".3" stroke="none"/><path d="M12 12 18.4 5.6"/><circle cx="7.6" cy="15.2" r="1.1" fill="currentColor" stroke="none"/>',
     "binoculars": '<circle cx="6.5" cy="16" r="3.5"/><circle cx="17.5" cy="16" r="3.5"/><path d="M3 16V9l2-4h3l1 4M21 16V9l-2-4h-3l-1 4M9 9h6M10 16h4M9 9v5M15 9v5"/>',
     "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     "keyboard": '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
