@@ -322,6 +322,98 @@ If the OpenStreetMap download fails, export the area as JSON from
 
 ---
 
+## Machine learning: plug in models, train on your own flights
+
+The colour detectors need no training. For an AI detector that knows what a person looks like
+**from your drone, over your terrain**, the app has two pieces: it runs any exported model, and it
+turns your triage reviews into training data.
+
+### Run an exported model (ONNX)
+
+```bash
+pip install -e ".[onnx]"
+isr model info my_sar_model.onnx --photo DJI_0412.JPG
+isr triage E:\DCIM --ai --ai-model my_sar_model.onnx --open
+```
+
+`pip install -e ".[onnx]"` installs ONNX Runtime (about 15 MB, no PyTorch). `isr model info`
+shows the format, classes and speed on one of your photos.
+
+Models exported from Ultralytics YOLO, RF-DETR, D-FINE / RT-DETR and other DETR-style detectors
+are recognised automatically. A model card (`my_sar_model.json` next to the file) can set the class
+names, input size, normalisation, tile size and default confidence:
+
+```bash
+isr model card my_sar_model.onnx --classes person,vehicle --tile 640 --notes "trained on 3 flights"
+```
+
+Photos are cut into tiles at full resolution (`--ai-tile`, or the card's `tile`), so a person 30 px
+across stays 30 px instead of shrinking away. A small model on a laptop CPU takes about 1.5–3 s per
+20 MP photo.
+
+Stock COCO models are automatically limited to search-relevant classes (people, packs, vehicles,
+animals). They're trained on ground-level photos and are weak from above, which is the reason to
+fine-tune.
+
+### Build training data from your reviews
+
+Every **Confirm** and **Dismiss** in the triage report is a label:
+
+* **Confirm** → a positive example, of the class picked in **Confirm as** (person, vehicle, animal
+  or object).
+* **Dismiss** → a *hard negative*: a tile with that false alarm in it and no box. These teach a model
+  that your rocks, stumps and cattle troughs aren't people, which is where stock models fail.
+
+After reviewing, click **Labels** in the report to download `labels.json`, then:
+
+```bash
+isr dataset add triage_run1 --labels ~/Downloads/labels.json -d sar_dataset
+isr dataset stats -d sar_dataset
+```
+
+Run `isr dataset add` after every flight. Tiles are cut at full resolution, assigned to
+train/validation *by photo* (so the validation set is honest), and re-adding the same review never
+duplicates anything.
+
+Candidate boxes come from the detectors, so they can be tight (just the jacket) or loose. `--pad`
+grows them a little; for a serious training run, open the export in a labelling tool (CVAT, Label
+Studio, Roboflow) and tidy the boxes first.
+
+### Train (on a machine with an NVIDIA GPU, or a rented cloud GPU)
+
+**RF-DETR** is Apache 2.0, so it's safe in a commercial product:
+
+```bash
+isr dataset export -d sar_dataset --format coco -o sar_coco
+pip install rfdetr
+python -c "from rfdetr import RFDETRBase; RFDETRBase().train(dataset_dir='sar_coco', epochs=50, batch_size=8, output_dir='rfdetr_out')"
+```
+
+Then export to ONNX following RF-DETR's documentation, and describe the model:
+
+```bash
+isr model card model.onnx --format detr --normalize imagenet --classes person --tile 640
+```
+
+**Ultralytics YOLO** is AGPL-3.0: copyleft, or a paid licence for closed commercial use:
+
+```bash
+isr dataset export -d sar_dataset --format yolo -o sar_yolo
+yolo detect train data=sar_yolo/data.yaml model=yolo11s.pt imgsz=640 epochs=100
+yolo export model=runs/detect/train/weights/best.pt format=onnx imgsz=640
+isr model card best.onnx --tile 640
+```
+
+After training, confirm the class names line up by running `isr model info best.onnx --photo` on a
+photo with a known target. Fix the order with `--classes` if needed.
+
+**How much data?** A few hundred confirmed people plus a good number of dismissed false alarms
+make a useful start. Results keep improving with every flight you review. Public aerial SAR
+datasets (HERIDAL, SARD, WiSARD) can bootstrap a model before you have your own; check each
+dataset's licence for commercial use.
+
+---
+
 ## Studio: find your portfolio shots
 
 ```bash
@@ -576,7 +668,8 @@ The tests generate synthetic DJI photos with real EXIF and XMP metadata and know
 the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, horizon detection,
 that edits keep metadata and never touch the originals, reference-photo matching, and the movement
 model (walking times against Tobler's formula, river barriers and bridges, uphill vs downhill, road
-routing, corridors, probability maps and segment ranking). The site tests build the demo property
+routing, corridors, probability maps and segment ranking), the ONNX detector on every supported
+output layout, and the review-to-dataset pipeline and its YOLO/COCO exports. The site tests build the demo property
 (`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
 angled shots alone), that hidden doors rank highest and the recommended cameras cover them, the
 report, and the editor server.

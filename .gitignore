@@ -12,3 +12,6 @@ edited/
 track_*/
 area/
 site_*/
+runs/
+sar_dataset/
+*.onnx

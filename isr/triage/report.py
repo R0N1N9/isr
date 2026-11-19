@@ -84,7 +84,9 @@ const S = DATA.summary;
 const KEY = "isr-triage:" + S.source + ":" + S.generated;
 let status = {};
 try { status = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(status)); } catch (e) {} };
+let classes = {};
+try { classes = JSON.parse(localStorage.getItem(KEY + ":cls") || "{}"); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(status)); localStorage.setItem(KEY + ":cls", JSON.stringify(classes)); } catch (e) {} };
 const $ = s => document.querySelector(s);
 const colv = (s, st) => st === "confirmed" ? "var(--good)" : s >= .75 ? "var(--hi)" : s >= .55 ? "var(--mid)" : "var(--lo)";
 const ICON = DATA.icons;
@@ -109,6 +111,7 @@ function renderStats() {
 
 const kinds = [...new Set(items.flatMap(i => i.kinds.map(k => k.split(":")[0])))];
 for (const k of kinds) $("#kind").insertAdjacentHTML("beforeend", `<option value="${esc(k)}">${esc(k[0].toUpperCase() + k.slice(1))}</option>`);
+if (S.config.reference) $("#labelAs").value = S.config.reference.target === "vehicle" ? "vehicle" : S.config.reference.target === "animal" ? "animal" : "person";
 const ms = $("#minScore"); ms.value = S.config.min_score; $("#minScoreV").textContent = (+ms.value).toFixed(2);
 let view = "open";
 
@@ -136,7 +139,7 @@ function card(i, idx) {
       <div class="over"></div>
       <span class="rank">#${i.rank}</span>
       <div class="ringpos"><div class="ring" style="--p:${pct};--c:${colv(i.score)}"><span>${pct}</span></div></div>
-      <span class="status-pill c">${ICON.check} Confirmed</span><span class="status-pill x">Dismissed</span>
+      <span class="status-pill c">${ICON.check} ${esc(classes[i.id] || "Confirmed")}</span><span class="status-pill x">Dismissed</span>
     </div>
     <div class="cbody">
       <div class="ttl">${esc(i.label)}</div>
@@ -161,7 +164,8 @@ function render(keepSel) {
 function setStatus(idx, st) {
   const i = visible[idx]; if (!i) return;
   history.push([i.id, status[i.id]]);
-  if (status[i.id] === st) delete status[i.id]; else status[i.id] = st;
+  if (status[i.id] === st) { delete status[i.id]; delete classes[i.id]; }
+  else { status[i.id] = st; if (st === "confirmed") classes[i.id] = $("#labelAs").value; else delete classes[i.id]; }
   save(); render(true); select(Math.min(idx, visible.length - 1));
   if ($("#lb").classList.contains("open")) openLb(sel);
 }
@@ -219,6 +223,15 @@ document.addEventListener("keydown", e => {
 });
 ["#minScore", "#kind"].forEach(s => $(s).addEventListener("input", () => { $("#minScoreV").textContent = (+ms.value).toFixed(2); render(); }));
 
+$("#expLabels").onclick = () => {
+  const ids = Object.keys(status);
+  if (!ids.length) return toast("Confirm or dismiss some candidates first");
+  const labels = {};
+  for (const id of ids) labels[id] = {status: status[id], class: status[id] === "confirmed" ? (classes[id] || "person") : null};
+  download("labels.json", JSON.stringify({isr_labels: 1, source: S.source, generated: S.generated, labels}, null, 1), "application/json");
+  const c = ids.filter(id => status[id] === "confirmed").length;
+  toast(`Exported ${c} confirmed + ${ids.length - c} dismissed for training`);
+};
 const confirmed = () => items.filter(i => status[i.id] === "confirmed" && i.lat != null);
 $("#expGpx").onclick = () => {
   const c = confirmed(); if (!c.length) return toast("Confirm a candidate first");
@@ -291,6 +304,7 @@ def _body() -> str:
   <div class="brand">{LOGO}<div class="brand-name">ISR <span>/ Search triage</span></div></div>
   <div class="crumb mono" id="src"></div>
   <div class="spacer"></div>
+  <button class="btn" id="expLabels" title="Your Confirm/Dismiss decisions as training labels (isr dataset add)">{icon("layers")}<span class="lbl">Labels</span></button>
   <button class="btn" id="expCsv" title="Export confirmed as CSV">{icon("download")}<span class="lbl">CSV</span></button>
   <button class="btn primary" id="expGpx" title="Export confirmed as GPX waypoints">{icon("download")}<span class="lbl">Confirmed GPX</span></button>
   {theme_button()}
@@ -312,6 +326,8 @@ def _body() -> str:
   <div class="toolbar">
     <div class="seg" id="view" role="group" aria-label="Review status">{seg}</div>
     <label class="field">Detector <select class="input" id="kind"><option value="">All detectors</option></select></label>
+    <label class="field" title="Class recorded when you confirm (for training)">Confirm as <select class="input" id="labelAs">
+      <option>person</option><option>vehicle</option><option>animal</option><option>object</option></select></label>
     <label class="field">Min score <input type="range" id="minScore" min="0" max="1" step="0.05"><span class="val" id="minScoreV"></span></label>
     <div class="hint">{icon("keyboard")} <span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>C</kbd> confirm</span>
       <span><kbd>X</kbd> dismiss</span><span><kbd>U</kbd> undo</span><span><kbd>Space</kbd> view</span></div>

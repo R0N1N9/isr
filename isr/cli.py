@@ -1,4 +1,4 @@
-"""Command line entry point: ``isr triage | plan | track | studio | enhance | site | info``."""
+"""Command line entry point: ``isr triage | plan | track | studio | enhance | site | model | dataset | info``."""
 
 from __future__ import annotations
 
@@ -83,6 +83,7 @@ def cmd_triage(a) -> int:
         ai=a.ai,
         ai_model=a.ai_model,
         ai_conf=a.ai_conf,
+        ai_tile=a.ai_tile,
         work_px=a.work_px,
         min_area_m2=a.min_area,
         max_area_m2=a.max_area,
@@ -450,6 +451,71 @@ def cmd_site(a) -> int:
 
 
 # --------------------------------------------------------------------------
+# model / dataset
+# --------------------------------------------------------------------------
+
+
+def cmd_model(a) -> int:
+    from .ml.onnx_detector import ModelCard, OnnxDetector
+
+    path = Path(a.model).expanduser()
+    if a.model_cmd == "card":
+        card = ModelCard.load(path)
+        if a.format:
+            card.format = a.format
+        if a.classes:
+            card.classes = [c.strip() for c in a.classes.split(",") if c.strip()]
+        for k in ("input_size", "normalize", "tile", "conf"):
+            if getattr(a, k) is not None:
+                setattr(card, k, getattr(a, k))
+        if a.notes:
+            card.notes = a.notes
+        print(f"Wrote {card.save(path)}")
+    det = OnnxDetector(path)
+    info = det.describe()
+    print(f"{path.name}")
+    for k, v in info.items():
+        if k == "classes" and isinstance(v, list) and len(v) > 12:
+            v = f"{len(v)} classes: {', '.join(v[:10])}, ..."
+        if k != "file":
+            print(f"  {k:11} {v}")
+    if getattr(a, "photo", None):
+        from PIL import Image
+
+        t = det.benchmark(a.photo)
+        with Image.open(a.photo) as im:
+            dets = det.detect_image(im)
+        print(f"  speed      {t:.2f} s per photo ({Path(a.photo).name}, {len(dets)} detection(s) at conf {det.conf})")
+        for x0, y0, x1, y1, sc, name in dets[:10]:
+            print(f"             {name:12} {sc:.2f}  box {x0:.0f},{y0:.0f},{x1:.0f},{y1:.0f}")
+    return 0
+
+
+def cmd_dataset(a) -> int:
+    from .ml.dataset import Dataset, add_from_triage, export
+
+    if a.dataset_cmd == "add":
+        res = add_from_triage(Path(a.triage).expanduser(), Path(a.labels).expanduser(), Path(a.dataset).expanduser(),
+                              tile=a.tile, pad=a.pad, force=a.force)
+        ad, st = res["added"], res["dataset"]
+        print(f"Added {ad['positive']} positive and {ad['negative']} hard-negative tile(s)"
+              + (f"; {ad['skipped_existing']} already in the dataset" if ad["skipped_existing"] else ""))
+        print(f"Dataset: {st['tiles']} tiles ({st['train']} train / {st['val']} val) from {st['runs']} run(s); "
+              f"boxes: {st['boxes'] or 'none'}")
+    elif a.dataset_cmd == "export":
+        cfg = export(Path(a.dataset).expanduser(), Path(a.output).expanduser(), a.format,
+                     [c.strip() for c in a.classes.split(",")] if a.classes else None)
+        print(f"Exported {a.format.upper()} dataset -> {cfg}")
+    else:
+        st = Dataset(Path(a.dataset).expanduser()).stats()
+        for k, v in st.items():
+            print(f"  {k:15} {v}")
+        if st["tiles"] and st["val"] == 0:
+            print("  ! no validation tiles yet: add more flights so some photos land in the validation split")
+    return 0
+
+
+# --------------------------------------------------------------------------
 # info
 # --------------------------------------------------------------------------
 
@@ -495,7 +561,10 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--no-anomaly", action="store_true", help="disable the colour-anomaly detector")
     t.add_argument("--sensitivity", type=float, default=1.0, help="anomaly sensitivity; >1 flags more, <1 fewer")
     t.add_argument("--ai", action="store_true", help="also run the YOLO person/object detector (needs ultralytics)")
-    t.add_argument("--ai-model", default="yolov8n.pt", help="YOLO weights file (e.g. a SAR-trained model)")
+    t.add_argument("--ai-model", default="yolov8n.pt",
+                   help="model file: an exported .onnx (runs without PyTorch) or Ultralytics .pt weights")
+    t.add_argument("--ai-tile", type=int, help="ONNX models: tile size in full-resolution pixels (smaller = finds "
+                                               "smaller people, slower)")
     t.add_argument("--ai-conf", type=float, default=0.20, help="AI confidence threshold")
     t.add_argument("--min-score", type=float, default=0.35, help="drop candidates below this score")
     t.add_argument("--max-per-photo", type=int, default=8, help="keep at most N candidates per photo")
@@ -645,6 +714,44 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--port", type=int, default=8765, help="local port for the editor")
         sp.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     si.set_defaults(func=cmd_site)
+
+    mo = sub.add_parser("model", help="inspect, describe and benchmark an exported .onnx detector")
+    mos = mo.add_subparsers(dest="model_cmd", required=True)
+    mi = mos.add_parser("info", help="show what the app reads from a model; optionally time it on a photo")
+    mi.add_argument("model")
+    mi.add_argument("--photo", help="run the model on this photo and report speed and detections")
+    mi.set_defaults(func=cmd_model)
+    mc = mos.add_parser("card", help="write/update the model card (model.json) next to the .onnx")
+    mc.add_argument("model")
+    mc.add_argument("--format", choices=["yolo", "yolo_e2e", "detr", "dfine"])
+    mc.add_argument("--classes", help="comma-separated class names in the model's order")
+    mc.add_argument("--input-size", type=int)
+    mc.add_argument("--normalize", choices=["none", "imagenet"])
+    mc.add_argument("--tile", type=int, help="default full-resolution tile size")
+    mc.add_argument("--conf", type=float, help="default confidence threshold")
+    mc.add_argument("--notes", help="free text: training data, date, scorecard...")
+    mc.set_defaults(func=cmd_model, photo=None)
+
+    ds = sub.add_parser("dataset", help="build training data from your triage reviews")
+    dss = ds.add_subparsers(dest="dataset_cmd", required=True)
+    da = dss.add_parser("add", help="add a reviewed triage run (results + labels.json from the report)",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    da.add_argument("triage", help="triage output folder (with results.json)")
+    da.add_argument("--labels", required=True, help="labels.json exported from that run's report")
+    da.add_argument("-d", "--dataset", default="sar_dataset", help="dataset folder (grows with every run)")
+    da.add_argument("--tile", type=int, default=640, help="tile size in full-resolution pixels")
+    da.add_argument("--pad", type=float, default=0.15, help="grow candidate boxes by this share on each side")
+    da.add_argument("--force", action="store_true", help="accept labels exported from a different run")
+    da.set_defaults(func=cmd_dataset)
+    de = dss.add_parser("export", help="write the dataset in YOLO or COCO layout for training")
+    de.add_argument("-d", "--dataset", default="sar_dataset")
+    de.add_argument("--format", choices=["yolo", "coco"], default="coco", help="coco for RF-DETR / D-FINE")
+    de.add_argument("--classes", help="class order, e.g. person,vehicle (default: order first seen)")
+    de.add_argument("-o", "--output", required=True)
+    de.set_defaults(func=cmd_dataset)
+    dst = dss.add_parser("stats", help="summarise the dataset")
+    dst.add_argument("-d", "--dataset", default="sar_dataset")
+    dst.set_defaults(func=cmd_dataset)
 
     i = sub.add_parser("info", help="show the metadata the tools read from a photo")
     i.add_argument("photos", nargs="+")

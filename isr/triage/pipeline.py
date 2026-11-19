@@ -35,6 +35,7 @@ class TriageConfig:
     ai: bool = False
     ai_model: str = "yolov8n.pt"
     ai_conf: float = 0.20
+    ai_tile: int | None = None  # ONNX models: full-resolution tile size (default from the model card)
     work_px: int = 2000
     min_area_m2: float = 0.04
     max_area_m2: float = 12.0
@@ -129,6 +130,14 @@ def _classic_detect(path: Path, cfg: TriageConfig) -> tuple[PhotoMeta | None, li
         return meta, [], f"detect: {e}"
 
 
+def make_ai_detector(cfg: TriageConfig, classes: set[str] | None = None):
+    """ONNX file -> OnnxDetector (no PyTorch needed); anything else -> Ultralytics YOLO."""
+    if str(cfg.ai_model).lower().endswith(".onnx"):
+        from ..ml.onnx_detector import OnnxDetector
+        return OnnxDetector(cfg.ai_model, conf=cfg.ai_conf, classes=classes, tile=cfg.ai_tile)
+    return AIDetector(cfg.ai_model, conf=cfg.ai_conf, classes=classes)
+
+
 def _score_reference(dets: list[Detection], prof, path: Path) -> None:
     """Apply appearance similarity; AI-only hits get it measured from the photo here."""
     from .reference import similarity
@@ -206,7 +215,10 @@ def run_triage(source: Path, out_dir: Path, cfg: TriageConfig, log=print) -> dic
     if prof is not None:
         from .reference import AI_CLASSES
         ai_classes = AI_CLASSES[prof.target]
-    ai = AIDetector(cfg.ai_model, conf=cfg.ai_conf, classes=ai_classes) if cfg.ai else None
+    ai = make_ai_detector(cfg, ai_classes) if cfg.ai else None
+    if ai is not None and getattr(ai, "format", None):
+        log(f"AI model {Path(cfg.ai_model).name}: {ai.format} format, {len(ai.class_names) or '?'} classes, "
+            f"{ai.tile} px tiles")
     sizes = SizeFilter(cfg.min_area_m2, cfg.max_area_m2)
 
     results: list[PhotoResult] = []
