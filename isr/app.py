@@ -30,18 +30,15 @@ from .ui import APP_NAME, ICON_SVG, LOGO, icon, page, theme_button
 
 SECTIONS = {
     "sar": {"title": "SAR", "long": "Search and rescue", "main": "report.html", "icon": "radar", "color": "#12a150",
-            "blurb": "Scan every photo for a missing person or a target of interest. Hits are ranked, placed on "
-                     "the map, and written up as a search report with coordinates for ground teams.",
+            "blurb": "Find people and targets in aerial photos.",
             "new": "New search"},
     "survey": {"title": "Survey", "long": "Site security posture", "main": "site.json", "icon": "map",
                "color": "#5b5bf7",
-               "blurb": "Trace a site over its aerial photo and get sightlines, blind spots, camera placement, "
-                        "access points and perimeter as a report for the client.",
+               "blurb": "Sightlines, blind spots, cameras, guard posts.",
                "new": "New survey"},
     "stakeout": {"title": "Stakeout", "long": "Pattern of activity", "main": "report.html", "icon": "binoculars",
                  "color": "#e08a00",
-                 "blurb": "Leave a camera on a gate or approach for a day or a week, then drop its photos here. See when "
-                          "the place is busy, dead, or visited out of hours, and time guard posts and patrols to match.",
+                 "blurb": "When a site is busy, quiet, or visited out of hours.",
                  "new": "New stakeout"},
 }
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,60}$")
@@ -457,7 +454,7 @@ body::before{background:
   box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 28%,transparent) inset}
 .sect-h h2{font-size:21px;font-weight:600;letter-spacing:-.02em}
 .sect-h .long{font-size:12px;letter-spacing:.02em;margin-top:1px}
-.sect-h p{font-size:13.5px;line-height:1.6;color:var(--muted);margin:18px 0 22px;min-height:88px}
+.sect-h p{font-size:13.5px;line-height:1.5;color:var(--muted);margin:16px 0 20px;min-height:0}
 .btn{border-radius:11px;height:36px;font-weight:550;box-shadow:none}
 .sect .btn.primary{background:var(--c);box-shadow:none;border:0;padding:0 16px}
 .sect .btn.primary:hover{filter:brightness(1.12)}
@@ -541,13 +538,12 @@ async function home() {
     <button class="btn icon sm" data-art-rm="${esc(it.id)}" title="Remove from the gallery" aria-label="Remove">${DATA.trash}</button>
     <span class="cap">${esc(it.from)}${it.tags.length ? " · " + esc(it.tags.slice(0, 2).join(", ")) : ""}</span></a>`).join("");
   $("#art-note").textContent = (a.busy.length ? "Looking through " + a.busy.join(", ") + "… " : "") +
-    (a.items.length ? "Check each picture for recognisable people or private property before selling it: stock libraries ask for a release."
-      : a.busy.length ? "" : "Nothing yet. Pictures appear here after a job, when its photos include any worth keeping.");
+    (a.items.length ? "Check for people and private property before selling." : a.busy.length ? "" : "Empty.");
   $("#art-export").disabled = !a.items.length;
   clearTimeout(window.__artT); if (a.busy.length) window.__artT = setTimeout(home, 2500);
 }
 $("#art-export").addEventListener("click", async () => { const r = await api("/api/art/export", {});
-  $("#art-note").textContent = `Exported ${r.count} picture${r.count === 1 ? "" : "s"} to ${r.path} (full size, edited, with pictures.csv listing them).`; toast("Exported " + r.count); });
+  $("#art-note").textContent = `Exported ${r.count} to ${r.path}`; toast("Exported " + r.count); });
 document.addEventListener("click", async ev => {
   const del = ev.target.closest("[data-del]");
   if (del) { ev.preventDefault(); if (!confirm(`Delete "${del.dataset.name}" and everything in its folder? This cannot be undone.`)) return;
@@ -654,11 +650,10 @@ def home_html() -> str:
 <div class="wrap">
 <div class="cols">{"".join(cards)}</div>
 <section class="art"><div class="art-h"><div class="ico">__ART__</div><div class="grow"><h2>Art <span class="long" id="art-count"></span></h2>
-<p>Stock-worthy frames found along the way. Every job looks through its own photos, keeps the ones that would stand up as
-pictures, and gives them a light touch-up. Remove any you would not put your name to, then export.</p></div>
-<button class="btn" id="art-export">__DL__Export all to a folder</button></div>
+<p>Stock-worthy frames from your jobs, edited.</p></div>
+<button class="btn" id="art-export">__DL__Export</button></div>
 <div id="art-grid"></div><div id="art-note"></div></section>
-<p class="foot">Start a job, or drag a folder or drive onto a section. Nothing is uploaded. Jobs are kept in <span class="mono" id="ws"></span>. Each job folder holds its report and exports and can be copied elsewhere.</p></div>
+<p class="foot">Jobs: <span class="mono" id="ws"></span></p></div>
 <dialog id="dlg"><div class="dlg-h" id="dlg-title"></div><div class="dlg-b">
 <div class="fld"><label>Folder of photos (the SD card's DCIM folder, or any folder of JPEGs)</label>
 <div class="dropzone" id="drop">__DROP__<div><b>Drag the folder or drive here</b><span id="drop-msg">from your file manager, or browse to it below.</span></div></div>

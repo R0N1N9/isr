@@ -56,7 +56,7 @@ def studio(tmp_path_factory):
 def test_home_lists_three_sections(studio):
     code, page = studio["call"]("/", raw=True)
     assert code == 200 and b"ISRStudio" in page
-    for word in (b"SAR", b"Survey", b"Art", b"Stakeout", b"New search", b"New survey", b"New stakeout", b"Export all to a folder"):
+    for word in (b"SAR", b"Survey", b"Art", b"Stakeout", b"New search", b"New survey", b"New stakeout", b"art-export"):
         assert word in page
     code, home = studio["call"]("/api/home")
     assert set(home["jobs"]) == {"sar", "survey", "stakeout"} and set(home["art"]) == {"items", "busy"}
