@@ -168,6 +168,16 @@ def normalise(model: dict) -> dict:
         d["code"] = str(d.get("code") or f"D{len(dets) + 1}")[:8]
         dets.append(d)
     model["detections"] = dets
+
+    ids = {f["id"] for f in feats}
+    watch = []
+    for w in model.get("stakeouts") or []:  # stakeout summaries attached from the Watch section
+        d = w.get("data") if isinstance(w, dict) else None
+        if not isinstance(d, dict) or not all(k in d for k in ("summary", "rate", "cover", "by_hour", "closed")):
+            continue
+        watch.append({"id": str(w.get("id") or f"w{len(watch) + 1}")[:80], "name": str(w.get("name") or "Stakeout")[:120],
+                      "access": w.get("access") if w.get("access") in ids else "", "data": d})
+    model["stakeouts"] = watch[:12]
     return model
 
 

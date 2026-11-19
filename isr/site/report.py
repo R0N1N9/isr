@@ -78,6 +78,9 @@ ul.pc li::before{position:absolute;left:0;font-weight:700}
 ul.pc li.pro::before{content:"+";color:var(--good)}ul.pc li.con::before{content:"\2212";color:var(--bad)}
 h3.scn{font-size:16px;margin-top:30px}
 .cards.opts{grid-template-columns:repeat(auto-fill,minmax(420px,1fr))}
+.advice{display:grid;gap:8px;margin:10px 0}
+.adv{display:grid;grid-template-columns:4px 1fr;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;break-inside:avoid}
+.adv i{background:var(--c)}.adv div{padding:10px 15px;max-width:92ch}
 .thumbs{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 .thumbs a{display:block;width:96px;height:72px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
 .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
@@ -506,12 +509,29 @@ def build_html(model: dict, an: Analysis) -> str:
                          f'<div class="sub">{h(" · ".join(facts))}</div><ul class="pc">{ul(o["pros"], "pro")}{ul(o["cons"], "con")}</ul>'
                          f'{tips}{stops}</div>')
             b.append("</div>")
+        if gp.get("timing"):
+            b.append('<h3 class="scn">When to hold posts and time patrols</h3><p class="lead">From the stakeout photos '
+                     'attached to this survey.</p><ul class="limits">' + "".join(f"<li>{h(t)}</li>" for t in gp["timing"]) + "</ul>")
         if gp["unreachable"]:
             b.append(f'<p class="sub">Not reachable on foot inside the boundary as drawn, so left off the routes: '
                      f'{h(", ".join(gp["unreachable"]))}.</p>')
         b.append('<p class="sub">These are geometric recommendations: what can be seen and how far it is to walk. They do not '
                  'account for lighting, shelter, radio cover, welfare breaks, shift patterns or the specific threat. '
                  'Walk the route before adopting it.</p>')
+
+    # activity over time, from attached stakeouts
+    if r.get("activity"):
+        from ..watch.report import advice_html, heatmap_svg
+
+        b.append(H("Activity over time"))
+        b.append('<p class="lead">What a fixed camera recorded over days: each square is one hour of one day of the week, '
+                 'coloured by movements an hour. Hatched squares were not watched; the red line marks closed hours.</p>')
+        for w in r["activity"]:
+            s_ = w["summary"]
+            b.append(f'<h3 class="scn">{h(w["label"])}</h3><div class="sub">{h(w["name"])} · {h(s_["first"])} to {h(s_["last"])} · '
+                     f'{s_["events"]} movements over {s_["days"]:g} days · {w["out_of_hours"]} while closed</div>'
+                     f'<div class="tablewrap" style="padding:14px 16px">{heatmap_svg(w["rate"], w["cover"], w["closed"])}</div>'
+                     f'{advice_html(w["advice"])}')
 
     # 6 access points
     b.append(H("Access points"))

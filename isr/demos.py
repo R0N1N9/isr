@@ -147,3 +147,85 @@ def write_art_demo(folder: Path) -> list[Path]:
         out.append(save_dji_jpeg(_img(a), folder / f"DJI_{i + 1:04d}_{name}.JPG", LAT + 0.001 * i, LON, 80,
                                  pitch=pitch, when=f"2026:11:16 {when}"))
     return out
+
+
+def write_watch_demo(folder: Path) -> list[Path]:
+    """A week of a trail camera on a gate: weekday rush hours, quiet weekends, and a few visits in the small hours.
+
+    The camera "fires on movement", so most frames hold a figure or a vehicle. A handful are false
+    triggers with nothing in them, and night frames are grey, as an infra-red camera's would be.
+    """
+    from datetime import datetime, timedelta
+
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(11)
+    w, h = 960, 720
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    sky = np.array([0.62, 0.74, 0.90], np.float32) * (1 - 0.25 * yy[..., None] / h)
+    ground = np.array([0.42, 0.45, 0.40], np.float32) + 0.06 * np.sin(xx / 37.0)[..., None] * (yy[..., None] / h)
+    base = np.where((yy < h * 0.42)[..., None], sky, ground)
+    base[int(h * .30):int(h * .62), int(w * .08):int(w * .36)] = (0.55, 0.40, 0.33)  # building
+    base[int(h * .40):int(h * .62), int(w * .17):int(w * .23)] = (0.20, 0.17, 0.16)  # door
+    for gx in range(int(w * .50), int(w * .96), 22):  # railings
+        base[int(h * .38):int(h * .62), gx:gx + 4] = (0.16, 0.17, 0.19)
+    base[int(h * .38):int(h * .395), int(w * .50):int(w * .96)] = (0.16, 0.17, 0.19)
+    base += rng.normal(0, 0.012, base.shape).astype(np.float32)
+
+    def frame(t, kind):
+        hour = t.hour + t.minute / 60
+        light = float(np.clip(1.15 - abs(hour - 13) / 9.0, 0.25, 1.0))
+        a = base * light
+        dark = hour < 6.2 or hour >= 20.5
+        im = _img(a + rng.normal(0, 0.008, a.shape).astype(np.float32))
+        d = ImageDraw.Draw(im)
+        x = float(rng.uniform(w * 0.2, w * 0.9))
+        if kind == "person":
+            ph = float(rng.uniform(95, 135))
+            y = h * 0.66 + float(rng.uniform(-10, 40))
+            c = tuple(int(v) for v in rng.integers(20, 210, 3))
+            d.rectangle((x - ph * .16, y - ph * .78, x + ph * .16, y - ph * .30), fill=c)
+            d.rectangle((x - ph * .13, y - ph * .30, x + ph * .13, y), fill=(34, 36, 48))
+            d.ellipse((x - ph * .10, y - ph, x + ph * .10, y - ph * .80), fill=(206, 168, 140))
+        elif kind == "vehicle":
+            y = h * 0.80
+            c = tuple(int(v) for v in rng.integers(30, 220, 3))
+            d.rounded_rectangle((x - 150, y - 95, x + 150, y), 18, fill=c)
+            d.rectangle((x - 95, y - 140, x + 80, y - 92), fill=(40, 48, 60))
+            d.ellipse((x - 115, y - 22, x - 65, y + 28), fill=(18, 18, 20))
+            d.ellipse((x + 65, y - 22, x + 115, y + 28), fill=(18, 18, 20))
+        if dark:  # infra-red: no colour, flat contrast, grain
+            g = np.asarray(im.convert("L"), np.float32) / 255
+            g = np.clip(g * 1.9 + 0.08 + rng.normal(0, 0.02, g.shape), 0, 1)
+            im = _img(np.repeat(g[..., None], 3, axis=2))
+        return im
+
+    start = datetime(2026, 11, 9, 6, 0, 0)  # a Monday
+    shots = []
+    for day in range(7):
+        d0 = start + timedelta(days=day)
+        weekend = d0.weekday() >= 5
+        for hour in range(24):
+            mean = (0.25 if weekend else {7: 5, 8: 9, 9: 3, 12: 2.5, 13: 2, 16: 3, 17: 8, 18: 3.5}.get(hour, 0.6)) \
+                if 6 <= hour < 20 else 0.0
+            for _ in range(int(rng.poisson(mean))):
+                t = d0.replace(hour=hour, minute=int(rng.integers(0, 60)), second=int(rng.integers(0, 60)))
+                kind = "vehicle" if rng.random() < 0.3 else "person"
+                for k in range(int(rng.integers(1, 4))):  # a burst as the subject crosses the view
+                    shots.append((t + timedelta(seconds=3 * k), kind))
+        if d0.weekday() in (1, 3, 5):  # someone at the gate in the small hours
+            t = d0.replace(hour=int(rng.choice([1, 2, 3])), minute=int(rng.integers(0, 60)))
+            shots += [(t, "person"), (t + timedelta(seconds=4), "person")]
+        if d0.weekday() in (0, 2, 4):  # late leaver
+            shots.append((d0.replace(hour=21, minute=int(rng.integers(0, 40))), "person"))
+        for _ in range(3):  # the trigger firing on nothing
+            shots.append((d0.replace(hour=int(rng.integers(0, 24)), minute=int(rng.integers(0, 60))), "empty"))
+    out = []
+    for i, (t, kind) in enumerate(sorted(shots), 1):
+        exif = Image.Exif()
+        exif[0x010F], exif[0x0110] = "Demo", "Trail camera"
+        exif.get_ifd(0x8769)[0x9003] = t.strftime("%Y:%m:%d %H:%M:%S")
+        p = folder / f"IMG_{i:04d}.JPG"
+        frame(t, kind).save(p, "JPEG", quality=80, exif=exif)
+        out.append(p)
+    return out

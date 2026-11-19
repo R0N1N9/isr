@@ -1,12 +1,13 @@
 # ISRStudio
 
-Offline tools that turn a card of drone (UAV) photos into something you can act on. One app, three
+Offline tools that turn a card of drone (UAV) photos into something you can act on. One app, four
 sections:
 
 | Section | For | You get |
 |---|---|---|
 | **SAR** | Search and rescue: finding a missing person or a target of interest | Every photo scanned, hits ranked and placed on the map, a search report with coordinates, GPX/KML/CSV for ground teams |
 | **Survey** | Assessing the security posture of a site | Sightlines, blind spots, camera placement, access points and perimeter, as a report for the client |
+| **Watch** | A stakeout: a fixed camera left on a gate or approach for a day or a week | When the place is busy, dead, or visited out of hours, and what that means for posts and patrols |
 | **Art** | Stock libraries, prints and portfolios | Photos ranked for technical and artistic quality, near-duplicates grouped, the best frames auto-edited |
 
 Everything runs on a laptop with no internet connection. Nothing is uploaded, and nothing is ever
@@ -28,11 +29,13 @@ manager onto a section, or onto the New dialog, instead of browsing to it. Each 
 * **SAR** opens the review page. Confirm or dismiss candidates, then **Search report** writes a
   printable report of the confirmed finds.
 * **Survey** opens the plan editor. Trace the site, then **Generate report**.
+* **Watch** opens the activity report. Attach it to a survey to add timing to the guard plan.
 * **Art** opens the gallery. Pick favourites, compare originals with the edits.
 
 No photos to hand? Each section has **Try the demo**, which paints a made-up set and runs the real
 tools on it: a six-frame search leg with three people to find (SAR), a property with a hidden side
-door (Survey), and a flight's worth of keepers, a burst and rejects to rank (Art).
+door (Survey), a flight's worth of keepers, a burst and rejects to rank (Art), and a week of a trail
+camera on a gate with rush hours, quiet weekends and visits in the small hours (Watch).
 
 Jobs are kept in `~/ISR-Studio/<section>/<job>/` and listed on the home screen, so you can reopen
 or delete them. Each job folder holds its report and exports and can be copied to a USB stick.
@@ -503,6 +506,34 @@ account: a camera at 2.7 m sees over a 1.2 m garden wall, a passer-by does not s
   about shelter, radio cover, breaks, shift patterns or the client's actual threat. Walk a route
   before adopting it.
 * Lighting, locks, glazing, alarms and upper floors are not assessed. They need a walk-through.
+
+---
+
+## Watch: a stakeout camera's pattern of activity
+
+Point a camera at a gate, a door or an approach and leave it for a day or a week. A trail camera
+that fires on movement is ideal (it saves space); one that shoots every few minutes works too. Then
+give ISRStudio the folder of photos: **New watch**, or drag the folder or card onto the Watch section.
+
+It reads the time each photo was taken (from the camera's own stamp, or the file's date if there is
+none), compares every frame with the same view at nearby times to find real movement, and groups
+movement less than a minute apart into one event. You get:
+
+* **When things move**: a week-by-hour grid of movements an hour, with the hours nobody watched hatched.
+* **Out of hours**: every movement in the hours you say the site is closed, with the frame.
+* **Where in the view**: a heat overlay on the camera's picture.
+* **What it means for guarding**: the busiest windows (when a posted guard earns most), whether
+  weekends differ, movement in the small hours to time patrols for, and the dead hours.
+
+**Linking it to a survey.** In the Survey editor's **Site** tab, attach a stakeout and say which
+door or gate it watched. The survey then reports movement while closed as a finding, shows the
+activity grid in the client report, and adds timing to the guard plan: which post sees that
+entrance, when it is busiest, and when to time a patrol pass.
+
+Limits: it counts changes in the picture, so wind, rain, headlights and moving shadows cause false
+movements and a small distant figure can be missed. Nobody is identified. One camera sees one view.
+Photos only for now, not video. Only watch a site you are engaged to assess, with the owner's
+agreement, and follow local rules on recording people.
 
 ---
 

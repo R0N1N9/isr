@@ -363,10 +363,26 @@ class Analysis:
             "grid": {"bounds": [sc.xmin, sc.ymin, sc.xmax, sc.ymax], "cell_m": sc.cell},
         }
         self.result["detections"] = self._detections(access)
+        self.result["activity"] = self._activity(access)
         self.result["findings"] = self._findings()
         from .guards import plan as guard_plan
 
         self.result["guards"] = guard_plan(self)
+        if self.result["guards"]:
+            posts = self.result["guards"]["posts"]
+            timing = []
+            for w in self.result["activity"]:
+                post = next((p["id"] for p in posts if w["access_name"] in p["sees"]), None)
+                seen = f" Post {post} sees it." if post else " No recommended post sees it, so this falls to the patrol."
+                if w["busy"]:
+                    timing.append(f"{w['label']}: busiest {w['busy']}.{seen} That is when a guard there does most good.")
+                if w["out_of_hours"]:
+                    timing.append(f"{w['label']}: {w['out_of_hours']} movement{'s' if w['out_of_hours'] != 1 else ''} "
+                                  f"while closed, most often around {w['ooh_hour']:02d}:00. Time a patrol pass for then.")
+                if w["quiet"]:
+                    timing.append(f"{w['label']}: nothing moves {w['quiet']}. Keep patrols going through it but expect "
+                                  "any movement then to be worth a challenge.")
+            self.result["guards"]["timing"] = timing
 
     # -- observers -----------------------------------------------------------
 
@@ -721,6 +737,33 @@ class Analysis:
                 "line": [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in pts[:: max(1, count // 40)]] +
                         [[round(float(pts[-1][0]), 2), round(float(pts[-1][1]), 2)]]}
 
+    # -- what a stakeout camera saw over time ---------------------------------------
+
+    def _activity(self, access):
+        """Attached stakeouts, each tied to the access point it watched, boiled down for the guard plan."""
+        from ..watch.pipeline import _windows, hours
+
+        by_id = {a["id"]: a for a in access}
+        out = []
+        for w in self.model.get("stakeouts") or []:
+            d = w["data"]
+            a = by_id.get(w["access"])
+            bh = np.array(d["by_hour"], float)
+            cover = np.array(d["cover"], float)
+            busy = " and ".join(hours(x, y) for x, y in _windows(bh >= max(0.6 * bh.max(), 1e-9))[:3]) if bh.max() > 0 else ""
+            quiet = [q for q in _windows((bh == 0) & (cover.sum(0) > 0)) if ((q[1] - q[0]) % 24 or 24) >= 3]
+            ooh = d.get("out_of_hours") or []
+            hist = np.bincount([e["hour"] for e in ooh], minlength=24) if ooh else None
+            out.append({
+                "id": w["id"], "name": w["name"], "access": w["access"], "access_name": a["name"] if a else None,
+                "label": a["name"] if a else (d.get("watching") or w["name"]),
+                "summary": d["summary"], "rate": d["rate"], "cover": d["cover"], "closed": d["closed"],
+                "advice": d.get("advice") or [], "busy": busy, "peak_rate": round(float(bh.max()), 1),
+                "quiet": hours(*max(quiet, key=lambda q: (q[1] - q[0]) % 24 or 24)) if quiet else "",
+                "out_of_hours": len(ooh), "ooh_hour": int(np.argmax(hist)) if ooh else None,
+            })
+        return out
+
     # -- things the detector found in the drone photos ---------------------------
 
     def _detections(self, access):
@@ -810,6 +853,15 @@ class Analysis:
             add(b["severity"], "Blind spot", f"{b['id']}: {b['area_m2']:.0f} m² unobserved on the {b['where']}"
                 if "side" in b["where"] else f"{b['id']}: {b['area_m2']:.0f} m² unobserved, {b['where']}",
                 f"Nobody on the street, at a window or on camera can see this area.{by}{near}", fix, b["id"])
+        for w in r["activity"]:
+            if w["out_of_hours"]:
+                c0, c1 = w["closed"]
+                add("medium", "Activity", f"{w['label']}: {w['out_of_hours']} movement"
+                    f"{'s' if w['out_of_hours'] != 1 else ''} while the site is closed",
+                    f"The stakeout ({w['summary']['days']:g} days) recorded movement between {c0:02d}:00 and {c1:02d}:00, "
+                    f"most often around {w['ooh_hour']:02d}:00.",
+                    "Find out who it is. If it is not expected, time patrols for that hour or alarm that approach.",
+                    w["access"] or None)
         for d in r["detections"]:
             if d["status"] != "confirmed":
                 continue

@@ -447,7 +447,8 @@ function renderResults() {
         <div class="d">${o.statics.length ? o.guard_pct + "% always watched" : "No fixed watch"}${rt ? " · " + rt.length_m + " m loop, every " + rt.revisit_min + " min" : ""}</div>
         ${o === cur ? `<ul class="pc">${li(o.pros, "pro")}${li(o.cons, "con")}</ul>${o.suggestions.map(x => `<div class="a">${esc(x)}</div>`).join("")}` : ""}</div>`; }));
     h += `<p class="help">Click an option to draw it on the plan. Posts: ${gp.posts.map(p => p.id + " " + esc(p.where)).join("; ") || "none worth holding"}.</p>`; }
-  else if (!model.settings.guards) h += `<p class="help" style="margin-top:14px">Planning guards? Set how many under <b>Site</b> to get posts, a patrol route and options for each headcount.</p>`;
+  if (gp && gp.timing && gp.timing.length) h += `<div class="sec"><span class="label">Timing, from stakeouts</span></div>` + gp.timing.map(t => `<div class="item" style="cursor:default;grid-template-columns:1fr"><span class="a" style="grid-column:1">${esc(t)}</span></div>`).join("");
+  else if (!gp && !model.settings.guards) h += `<p class="help" style="margin-top:14px">Planning guards? Set how many under <b>Site</b> to get posts, a patrol route and options for each headcount.</p>`;
   const all = model.detections || [], gone = all.filter(d => d.status === "dismissed").length;
   if (all.length) { h += `<div class="sec"><span class="label">Detected in the drone photos</span>${gone ? `<button class="btn sm" data-det-act="restore">Restore ${gone} dismissed</button>` : ""}</div>`;
     if (!result.detections.length) h += `<p class="help">All dismissed.</p>`;
@@ -523,6 +524,7 @@ function renderSettings() {
     <label>Assessor</label><input data-m="assessor" placeholder="Your name" value="${esc(model.assessor || "")}">
     <label>Reference</label><input data-m="reference" placeholder="Job or report number" value="${esc(model.reference || "")}">
     <label class="wide">Notes (shown in the report)</label><textarea data-m="notes">${esc(model.notes || "")}</textarea></div>
+    <div class="sec"><span class="label">Stakeouts</span></div><div id="stk"></div>
     <div class="sec"><span class="label">Guards</span></div><div class="form">
     ${n("guards", "Plan for up to", 1, 0, 6)}${n("guard_range_m", "Sight range (m)", 5, 5, 150)}</div>
     <p class="help" style="margin-top:8px">Set how many officers you might have (0 turns the guard plan off). You get a post-and-patrol option for each headcount up to that number. Updating the plan takes about a second longer while this is on.</p>
@@ -534,7 +536,34 @@ function renderSettings() {
     ${!model.basemap ? "No drone photos looking down at the ground, so there is no base map: sketch the plan on the grid (10 m squares) using the photo positions as a guide."
       : model.basemap.straight_down ? "Base map made from the straight-down drone photo" + (model.basemap.straight_down > 1 ? "s" : "") + "; expect it to be a few metres out in absolute position."
       : "Base map made from angled drone shots only. Ground-level detail is in the right place, but roofs and treetops lean away from the drone by roughly their own height, so trace each building where its walls meet the ground. One photo taken straight down from above the site avoids this."}</p>`;
+  renderStakeouts();
 }
+// stakeouts from the Watch section: attach one to the access point its camera was pointed at
+let watchJobs = null;
+async function renderStakeouts() {
+  const el = $("#stk"); if (!el) return;
+  const acc = model.features.filter(f => f.kind === "access"), have = model.stakeouts || [];
+  let h = have.map((w, i) => `<div class="item" style="cursor:default"><span class="badge" style="--c:#e08a00">W</span><span class="t">${esc(w.name)}</span>
+    <span class="d">${w.data.summary.events} movements over ${w.data.summary.days} days · watching ${esc((acc.find(a => a.id === w.access) || {name: "nothing marked"}).name)}</span>
+    <button class="btn sm" data-unwatch="${i}">Remove</button></div>`).join("");
+  if (!C.base) { el.innerHTML = h + `<p class="help">Open this survey from ISRStudio to attach photos from a stakeout camera (the Watch section).</p>`; return; }
+  if (!watchJobs) { try { watchJobs = (await (await fetch("/api/home")).json()).jobs.watch || []; } catch (e) { watchJobs = []; } }
+  const free = watchJobs.filter(j => !have.some(w => w.id === j.job));
+  h += free.length ? `<div class="form"><label>Stakeout</label><select id="stk-job">${free.map(j => `<option value="${j.job}">${esc(j.name)}</option>`).join("")}</select>
+      <label>It watched</label><select id="stk-acc"><option value="">(not an access point)</option>${acc.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
+      <button class="btn wide" id="stk-add" style="justify-content:center">Attach to this survey</button></div>`
+    : `<p class="help">${watchJobs.length ? "Every stakeout is attached." : "No stakeouts yet. Run one from the Watch section on the home screen, then attach it here to add timing to the findings and the guard plan."}</p>`;
+  el.innerHTML = h;
+}
+$("#p-settings").addEventListener("click", async ev => {
+  if (ev.target.dataset.unwatch != null) { model.stakeouts.splice(+ev.target.dataset.unwatch, 1); schedule(30); return renderStakeouts(); }
+  if (ev.target.id !== "stk-add") return;
+  const job = $("#stk-job").value, access = $("#stk-acc").value;
+  try { const d = await (await fetch("/watch/" + job + "/activity.json")).json();
+    const data = {}; for (const k of ["name", "watching", "mode", "closed", "summary", "counts", "cover", "rate", "by_hour", "by_day", "advice"]) data[k] = d[k];
+    data.out_of_hours = d.events.filter(e => e.out_of_hours).slice(0, 60).map(e => ({time: e.time, hour: e.hour}));
+    (model.stakeouts = model.stakeouts || []).push({id: job, name: d.name, access, data}); toast("Stakeout attached"); schedule(30); renderStakeouts();
+  } catch (e) { toast("Could not read that stakeout"); } });
 $("#p-settings").addEventListener("change", ev => { const t = ev.target;
   if (t.dataset.m) model[t.dataset.m] = t.value; else if (t.dataset.s) { const v = parseFloat(t.value); if (isFinite(v)) model.settings[t.dataset.s] = v; } else return; schedule(50); });
 $("#name").addEventListener("change", ev => { model.name = ev.target.value.trim() || "Site"; document.title = model.name + " · " + C.app; schedule(50); });

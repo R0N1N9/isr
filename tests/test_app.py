@@ -55,10 +55,10 @@ def studio(tmp_path_factory):
 def test_home_lists_three_sections(studio):
     code, page = studio["call"]("/", raw=True)
     assert code == 200 and b"ISRStudio" in page
-    for word in (b"SAR", b"Survey", b"Art", b"New search", b"New survey", b"New selection"):
+    for word in (b"SAR", b"Survey", b"Art", b"Watch", b"New search", b"New survey", b"New selection", b"New watch"):
         assert word in page
     code, home = studio["call"]("/api/home")
-    assert set(home["jobs"]) == {"sar", "survey", "art"} and home["workspace"].endswith("ws")
+    assert set(home["jobs"]) == {"sar", "survey", "art", "watch"} and home["workspace"].endswith("ws")
 
 
 def test_folder_picker(studio):
@@ -163,6 +163,84 @@ def test_art_demo_ranks_keepers_above_rejects(studio):
     assert data["summary"]["groups"] < data["summary"]["photos"]  # the two coastline frames are one moment
     assert (studio["root"] / "ws" / "_demo_photos" / "art").is_dir()
     assert studio["call"]("/api/home")[1]["jobs"]["art"][0]["name"] == "Demo selection"
+
+
+def test_watch_demo_finds_the_weekly_pattern(studio):
+    s = studio["run"]("watch", demo=True)
+    assert s["state"] == "done" and s["url"] == "/watch/demo-gate-one-week/"
+    job = studio["root"] / "ws" / "watch" / "demo-gate-one-week"
+    d = json.loads((job / "activity.json").read_text())
+    sm = d["summary"]
+    assert d["mode"] == "triggered" and d["watching"] == "Front gate" and 6 <= sm["days"] <= 7
+    assert 150 <= sm["events"] <= 230 and sm["with_movement"] < sm["photos"]  # empty trigger frames are not counted
+    by_hour = d["by_hour"]
+    assert max(range(24), key=lambda h: by_hour[h]) in (8, 17) and by_hour[8] > 4 * by_hour[11]
+    assert sum(d["by_day"][5:]) < 0.3 * sum(d["by_day"][:5])  # quiet weekend
+    ooh = [e for e in d["events"] if e["out_of_hours"]]
+    # three late leavers (Mon, Wed, Fri about 21:00) and three visits in the small hours (Tue, Thu, Sat)
+    assert sorted(e["weekday"] for e in ooh if e["hour"] < 5) == [1, 3, 5] and len(ooh) == 6
+    assert all(e["night"] for e in ooh if e["hour"] < 5)
+    kinds = [a["kind"] for a in d["advice"]]
+    assert "peak" in kinds and "out_of_hours" in kinds and "pattern" in kinds
+    assert (job / "scene.jpg").exists() and (job / "heat.png").exists() and (job / ooh[0]["frame"]).exists()
+    html = (job / "report.html").read_text()
+    assert "What this means for guarding" in html and "Out of hours" in html and "<svg" in html
+    assert "movements over" in studio["call"]("/api/home")[1]["jobs"]["watch"][0]["summary"]
+
+
+def test_stakeout_attached_to_a_survey_times_the_guard_plan(studio):
+    from isr.site import model as SM
+    from isr.site.analysis import analyse
+    from isr.site.report import write_report
+    from isr.watch.pipeline import compact
+
+    job = studio["root"] / "ws" / "watch" / "demo-gate-one-week"
+    code, act = studio["call"]("/watch/demo-gate-one-week/activity.json")  # what the editor fetches to attach it
+    assert code == 200 and act == json.loads((job / "activity.json").read_text())
+    out = studio["root"] / "surveyed"
+    m = demo.build_demo(out, log=lambda *a: None)
+    gate = next(f for f in m["features"] if f["name"] == "Driveway")
+    m["stakeouts"] = [{"id": "demo-gate-one-week", "name": act["name"], "access": gate["id"], "data": compact(act)},
+                      {"id": "junk", "data": {"nope": 1}}]
+    SM.normalise(m)
+    assert len(m["stakeouts"]) == 1
+    an = analyse(m)
+    w = an.result["activity"][0]
+    assert w["label"] == "Driveway" and w["out_of_hours"] == 6 and "08:00" in w["busy"]
+    assert any(f["category"] == "Activity" and "Driveway" in f["title"] for f in an.result["findings"])
+    timing = an.result["guards"]["timing"]
+    assert any("Driveway: busiest" in t and "Post P1 sees it" in t for t in timing)
+    assert any("while closed" in t for t in timing)
+    html = write_report(m, out, an).read_text()
+    assert "Activity over time" in html and "When to hold posts and time patrols" in html
+
+
+def test_watch_reads_file_times_and_interval_cameras(tmp_path):
+    """No EXIF: fall back to the file's time. A camera shooting every few minutes is recognised as such."""
+    import os
+    from datetime import datetime
+    import numpy as np
+    from PIL import Image
+    from isr.watch.pipeline import run_watch, taken_at
+
+    rng = np.random.default_rng(0)
+    base = rng.integers(60, 180, (120, 160, 3)).astype(np.uint8)
+    t0 = datetime(2026, 11, 10, 9, 0).timestamp()
+    for i in range(40):  # one frame every 10 minutes; a bright block crosses the view in frames 12-14
+        a = base.copy()
+        if 12 <= i <= 14:
+            a[50:90, 20 + (i - 12) * 40: 50 + (i - 12) * 40] = 255
+        p = tmp_path / "cam" / f"f{i:03d}.jpg"
+        p.parent.mkdir(exist_ok=True)
+        Image.fromarray(a).resize((640, 480), Image.NEAREST).save(p, quality=90)
+        os.utime(p, (t0 + 600 * i, t0 + 600 * i))
+    assert taken_at(tmp_path / "cam" / "f006.jpg") == datetime(2026, 11, 10, 10, 0)
+    d = run_watch(tmp_path / "cam", tmp_path / "out", closed_from=11, closed_to=12, log=lambda *a: None)
+    assert d["mode"] == "interval" and d["summary"]["photos"] == 40 and d["summary"]["with_movement"] == 3
+    assert [e["hour"] for e in d["events"]] == [11, 11, 11] and d["summary"]["out_of_hours"] == 3
+    assert sum(map(sum, d["cover"])) == 7  # watched 09:00 to 15:30: seven clock hours
+    with pytest.raises(SystemExit):
+        run_watch(tmp_path / "out" / "frames" / "nothing", tmp_path / "o2", log=lambda *a: None)
 
 
 def test_errors_and_safety(studio):
