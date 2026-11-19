@@ -14,12 +14,12 @@ CSS = r"""
 .hero .sub{color:var(--muted);font-size:13px;margin-top:2px}
 .toolbar{position:sticky;top:59px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 12px;
   margin:16px 0;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);
-  border-radius:14px;box-shadow:var(--shadow)}
+  border-radius:3px;box-shadow:var(--shadow)}
 .toolbar .right{margin-left:auto;display:flex;gap:10px;align-items:center}
 @media (max-width:700px){.wrap{padding:16px}.toolbar{top:53px}.toolbar .right{margin-left:0}}
 @media (max-width:1100px){.kbdhint{display:none!important}}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile,300px),1fr));gap:12px}
-.tile{position:relative;border-radius:14px;overflow:hidden;background:var(--surface-2);cursor:zoom-in;aspect-ratio:4/3;
+.tile{position:relative;border-radius:3px;overflow:hidden;background:var(--surface-2);cursor:zoom-in;aspect-ratio:4/3;
   border:1px solid var(--line);box-shadow:var(--shadow);outline:none;transition:transform .2s,box-shadow .2s}
 .tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
 .tile.sel{box-shadow:0 0 0 3px var(--accent),var(--shadow-lg)}
@@ -30,7 +30,7 @@ CSS = r"""
   opacity:.0;transition:opacity .2s;pointer-events:none}
 .tile:hover .shade,.tile.sel .shade,.tile.picked .shade{opacity:1}
 .tl{position:absolute;top:10px;left:10px;display:flex;gap:6px;align-items:center}
-.pill{height:24px;padding:0 9px;border-radius:999px;display:inline-flex;align-items:center;gap:5px;font:600 11.5px var(--font);
+.pill{height:24px;padding:0 9px;border-radius:3px;display:inline-flex;align-items:center;gap:5px;font:600 11.5px var(--font);
   color:#fff;background:rgba(10,11,14,.55);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14)}
 .pill.top{background:linear-gradient(90deg,var(--accent),var(--accent-2));border-color:transparent}
 .tr{position:absolute;top:8px;right:8px;display:flex;gap:6px}
@@ -45,7 +45,7 @@ CSS = r"""
 .tile:hover .bl,.tile.sel .bl{opacity:1;transform:none}
 .bl .t{font-size:12px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bl .tg{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
-.bl .tg span{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,.16);backdrop-filter:blur(6px)}
+.bl .tg span{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:3px;background:rgba(255,255,255,.16);backdrop-filter:blur(6px)}
 .score{font:750 22px var(--font);letter-spacing:-.03em;text-shadow:0 2px 12px rgba(0,0,0,.5)}
 .score small{font-size:11px;font-weight:600;opacity:.7;margin-left:2px}
 /* viewer */
@@ -54,7 +54,7 @@ CSS = r"""
 @media (max-width:980px){#viewer.open{grid-template-columns:1fr;grid-template-rows:62vh 1fr}}
 .stage{position:relative;min-height:0;display:grid;place-items:center;padding:20px;overflow:hidden}
 .cmp{position:relative;max-width:100%;max-height:100%;line-height:0;user-select:none;touch-action:none}
-.cmp img{max-width:100%;max-height:calc(100vh - 40px);display:block;border-radius:8px}
+.cmp img{max-width:100%;max-height:calc(100vh - 40px);display:block;border-radius:3px}
 @media (max-width:980px){.cmp img{max-height:calc(62vh - 40px)}}
 .cmp .after{position:absolute;inset:0;width:100%;height:100%;clip-path:inset(0 0 0 var(--x,50%))}
 .cmp .handle{position:absolute;top:0;bottom:0;left:var(--x,50%);width:2px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.3);cursor:ew-resize}
@@ -62,7 +62,7 @@ CSS = r"""
   background:rgba(255,255,255,.95) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2.2'%3E%3Cpath d='m9 18-6-6 6-6M15 6l6 6-6 6'/%3E%3C/svg%3E") center no-repeat;
   box-shadow:0 4px 18px rgba(0,0,0,.4)}
 .cmp .lab{position:absolute;top:12px;font:600 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:#fff;
-  background:rgba(0,0,0,.5);padding:4px 8px;border-radius:6px;line-height:1}
+  background:rgba(0,0,0,.5);padding:4px 8px;border-radius:3px;line-height:1}
 .cmp .lab.b{left:12px}.cmp .lab.a{right:12px}
 .cmp.single .after,.cmp.single .handle,.cmp.single .lab{display:none}
 .vbtn{position:absolute;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.14)}
@@ -82,7 +82,7 @@ CSS = r"""
 .btn.pick.on{background:#ff4d6d;border-color:#ff4d6d;color:#fff}
 .btn.pick.on svg{fill:#fff}
 .strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
-.strip img{width:76px;height:57px;object-fit:cover;border-radius:7px;border:2px solid transparent;cursor:pointer;flex:none;opacity:.75}
+.strip img{width:76px;height:57px;object-fit:cover;border-radius:3px;border:2px solid transparent;cursor:pointer;flex:none;opacity:.75}
 .strip img.cur{border-color:var(--accent);opacity:1}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12.5px;margin:0}
 .kv dt{color:var(--muted)}.kv dd{margin:0;word-break:break-all}
@@ -90,7 +90,7 @@ CSS = r"""
 /* export popover */
 #exp{position:fixed;z-index:70;right:24px;top:64px;width:min(440px,calc(100vw - 32px));display:none;padding:16px}
 #exp.open{display:block}
-#exp pre{margin:8px 0 12px;padding:10px 12px;border-radius:9px;background:var(--bg-2);border:1px solid var(--line);
+#exp pre{margin:8px 0 12px;padding:10px 12px;border-radius:3px;background:var(--bg-2);border:1px solid var(--line);
   font:12px var(--mono);white-space:pre-wrap;word-break:break-all}
 """
 

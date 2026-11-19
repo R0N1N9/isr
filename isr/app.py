@@ -505,6 +505,11 @@ dialog::backdrop{background:rgba(5,6,8,.55);backdrop-filter:blur(6px)}
 .fld input[type=text],.fld input[type=number]{border-radius:11px;height:38px;background:color-mix(in srgb,var(--surface) 60%,transparent)}
 .picker,.dropzone{border-radius:14px}
 @media (max-width:700px){.wrap{padding:26px 18px 60px}.hero h1{font-size:32px}.topbar{padding:12px 18px}}
+/* ---- square corners ---- */
+.sect,.art,dialog,.picker,.dropzone,#log{border-radius:4px}
+.sect-h .ico,.art-h .ico,.btn,#art-export,.job,.pic,.fld input[type=text],.fld input[type=number]{border-radius:3px}
+.pic .sc{border-radius:2px}
+.wrap{padding-top:28px}
 """
 
 JS = r"""
@@ -639,15 +644,14 @@ def home_html() -> str:
 <div class="jobs" id="jobs-{k}"></div></section>''')
     body = f'''<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME}</div></div><div class="spacer"></div>
 <button class="btn ghost" id="quit" title="Stop the app">{icon("power")}<span class="lbl">Quit</span></button>{theme_button()}</header>
-<div class="wrap"><div class="hero"><h1>Drone photos in.<br>Answers out.</h1>
-<p>Start a job, or drag a folder or drive onto a section. Everything runs on this computer; nothing is uploaded.</p></div>
+<div class="wrap">
 <div class="cols">{"".join(cards)}</div>
 <section class="art"><div class="art-h"><div class="ico">__ART__</div><div class="grow"><h2>Art <span class="long" id="art-count"></span></h2>
 <p>Stock-worthy frames found along the way. Every job looks through its own photos, keeps the ones that would stand up as
 pictures, and gives them a light touch-up. Remove any you would not put your name to, then export.</p></div>
 <button class="btn" id="art-export">__DL__Export all to a folder</button></div>
 <div id="art-grid"></div><div id="art-note"></div></section>
-<p class="foot">Jobs are kept in <span class="mono" id="ws"></span>. Each job folder holds its report and exports and can be copied elsewhere.</p></div>
+<p class="foot">Start a job, or drag a folder or drive onto a section. Nothing is uploaded. Jobs are kept in <span class="mono" id="ws"></span>. Each job folder holds its report and exports and can be copied elsewhere.</p></div>
 <dialog id="dlg"><div class="dlg-h" id="dlg-title"></div><div class="dlg-b">
 <div class="fld"><label>Folder of photos (the SD card's DCIM folder, or any folder of JPEGs)</label>
 <div class="dropzone" id="drop">__DROP__<div><b>Drag the folder or drive here</b><span id="drop-msg">from your file manager, or browse to it below.</span></div></div>

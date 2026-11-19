@@ -19,7 +19,7 @@ CSS = r"""
 .stats{margin-bottom:12px}
 .toolbar{position:sticky;top:59px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;
   padding:10px 12px;margin:14px 0 16px;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  border:1px solid var(--line);border-radius:3px;box-shadow:var(--shadow)}
 .toolbar .hint{margin-left:auto;color:var(--muted);font-size:12px;display:flex;gap:10px;align-items:center}
 @media (max-width:1100px){.toolbar .hint{display:none}}
 @media (max-width:700px){.wrap{padding:16px}.toolbar{top:53px}}
@@ -43,11 +43,11 @@ CSS = r"""
 .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .3s}
 .card:hover .thumb img{transform:scale(1.03)}
 .over{position:absolute;inset:auto 0 0 0;height:60px;background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
-.rank{position:absolute;top:10px;left:10px;height:24px;padding:0 9px;border-radius:999px;display:flex;align-items:center;
+.rank{position:absolute;top:10px;left:10px;height:24px;padding:0 9px;border-radius:3px;display:flex;align-items:center;
   background:rgba(10,11,14,.6);backdrop-filter:blur(8px);color:#fff;font:600 12px var(--font);border:1px solid rgba(255,255,255,.15)}
 .ringpos{position:absolute;top:8px;right:8px;--sz:42px;border-radius:50%;padding:2px;background:rgba(10,11,14,.55);backdrop-filter:blur(8px)}
 .ringpos .ring>span{background:rgba(10,11,14,.85);color:#fff}
-.status-pill{position:absolute;left:10px;bottom:10px;height:22px;padding:0 9px;border-radius:999px;display:none;align-items:center;gap:5px;
+.status-pill{position:absolute;left:10px;bottom:10px;height:22px;padding:0 9px;border-radius:3px;display:none;align-items:center;gap:5px;
   font:600 11.5px var(--font);color:#fff}
 .card.confirmed .status-pill.c{display:inline-flex;background:var(--good)}
 .card.dismissed .status-pill.x{display:inline-flex;background:#555}
@@ -55,7 +55,7 @@ CSS = r"""
 .ttl{font-weight:600;font-size:14px;letter-spacing:-.005em;line-height:1.3}
 .meta{color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:4px 10px}
 .coord{display:inline-flex;align-items:center;gap:6px;font:500 12px var(--mono);color:var(--ink-2);cursor:copy;
-  padding:4px 8px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);width:max-content;max-width:100%}
+  padding:4px 8px;border-radius:3px;background:var(--surface-2);border:1px solid var(--line);width:max-content;max-width:100%}
 .coord:hover{border-color:var(--line-2)}
 .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto;padding-top:4px}
 .acts .btn{justify-content:center}
@@ -66,7 +66,7 @@ CSS = r"""
 #lb.open{display:grid;grid-template-columns:1fr 340px}
 @media (max-width:900px){#lb.open{grid-template-columns:1fr;grid-template-rows:1fr auto}}
 #lb .stage{display:grid;place-items:center;padding:24px;min-height:0;position:relative}
-#lb .stage img{max-width:100%;max-height:calc(100vh - 48px);object-fit:contain;border-radius:10px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+#lb .stage img{max-width:100%;max-height:calc(100vh - 48px);object-fit:contain;border-radius:3px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
 #lb aside{background:var(--surface);border-left:1px solid var(--line);padding:20px;overflow:auto;color:var(--ink)}
 #lb .nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15)}
 #lb .nav.l{left:16px}#lb .nav.r{right:16px}
@@ -177,7 +177,7 @@ function openLb(idx) {
   lb.querySelector("aside").innerHTML = `
     <div style="display:flex;gap:12px;align-items:center"><div class="ring" style="--sz:52px;--p:${Math.round(i.score*100)};--c:${colv(i.score)}"><span>${Math.round(i.score*100)}</span></div>
     <div><div class="label">Candidate #${i.rank}</div><div class="ttl" style="font-size:16px">${esc(i.label)}</div></div></div>
-    <img src="${esc(i.crop)}" alt="" style="width:100%;border-radius:10px;margin-top:16px;border:1px solid var(--line)">
+    <img src="${esc(i.crop)}" alt="" style="width:100%;border-radius:3px;margin-top:16px;border:1px solid var(--line)">
     <dl class="kv"><dt>Position</dt><dd class="mono">${esc(ll)}</dd><dt>Source</dt><dd>${esc(i.position_source || "—")}</dd>
     <dt>Photo</dt><dd>${esc(i.photo.rel)}</dd><dt>Box</dt><dd>#${i.n} in photo</dd><dt>Taken</dt><dd>${esc((i.photo.taken_at||"—").replace("T"," "))}</dd>
     <dt>Altitude</dt><dd>${i.photo.rel_alt_m ?? "—"} m · ${i.photo.gsd_cm ?? "—"} cm/px</dd><dt>Original</dt><dd class="mono">${esc(i.photo.file)}</dd></dl>

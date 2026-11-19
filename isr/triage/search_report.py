@@ -28,7 +28,7 @@ h2{font-size:19px;margin:36px 0 8px;font-weight:650}
 .find img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;background:#000}
 .find div{padding:10px 12px}
 .find .t{font-weight:650;display:flex;gap:8px;align-items:center}
-.code{display:inline-grid;place-items:center;min-width:26px;height:20px;padding:0 5px;border-radius:6px;font:700 11px var(--mono);color:#fff;background:var(--c,var(--bad))}
+.code{display:inline-grid;place-items:center;min-width:26px;height:20px;padding:0 5px;border-radius:3px;font:700 11px var(--mono);color:#fff;background:var(--c,var(--bad))}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin:10px 0}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--line);background:var(--surface-2)}

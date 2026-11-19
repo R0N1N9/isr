@@ -52,9 +52,9 @@ td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 tr:last-child td{border-bottom:0}
 td.mono{white-space:nowrap}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.code{display:inline-grid;place-items:center;min-width:26px;height:20px;padding:0 5px;border-radius:6px;font:700 11px var(--mono);
+.code{display:inline-grid;place-items:center;min-width:26px;height:20px;padding:0 5px;border-radius:3px;font:700 11px var(--mono);
   color:#fff;background:var(--c,var(--muted))}
-.pill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:650;
+.pill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:3px;font-size:11px;font-weight:650;
   text-transform:capitalize;color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
   border:1px solid color-mix(in srgb,var(--c) 30%,transparent);white-space:nowrap}
 .yes{color:var(--good);font-weight:600}.no{color:var(--bad);font-weight:600}
@@ -82,7 +82,7 @@ h3.scn{font-size:16px;margin-top:30px}
 .adv{display:grid;grid-template-columns:4px 1fr;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;break-inside:avoid}
 .adv i{background:var(--c)}.adv div{padding:10px 15px;max-width:92ch}
 .thumbs{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
-.thumbs a{display:block;width:96px;height:72px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.thumbs a{display:block;width:96px;height:72px;border-radius:3px;overflow:hidden;border:1px solid var(--line)}
 .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin:12px 0}
 .photos figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}

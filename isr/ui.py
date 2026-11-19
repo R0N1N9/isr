@@ -53,7 +53,7 @@ _DRONE = ('<g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">
           '<circle cx="9.5" cy="22.5" r="3"/><circle cx="22.5" cy="22.5" r="3"/>'
           '<path d="M12 12l8 8M20 12l-8 8"/></g>')
 _PLATE = ('<defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{a}"/>'
-          '<stop offset="1" stop-color="{b}"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/>')
+          '<stop offset="1" stop-color="{b}"/></linearGradient></defs><rect width="32" height="32" rx="4" fill="url(#lg)"/>')
 LOGO = ('<svg class="logo" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">'
         + _PLATE.format(a="var(--accent)", b="var(--accent-2)") + _DRONE + "</svg>")
 ICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
@@ -70,7 +70,7 @@ CSS = r"""
   --shadow-sm:0 1px 2px rgba(16,24,40,.05);
   --shadow:0 1px 2px rgba(16,24,40,.04),0 8px 24px -8px rgba(16,24,40,.12);
   --shadow-lg:0 24px 64px -16px rgba(16,24,40,.28);
-  --r-sm:9px; --r:14px; --r-lg:20px;
+  --r-sm:2px; --r:3px; --r-lg:4px;
   --font: Inter, "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   --glass: rgba(255,255,255,.72);
@@ -112,7 +112,7 @@ a{color:inherit}
   .topbar .btn:not(.icon){padding:0 10px}}
 
 /* buttons */
-.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:9px;
+.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:3px;
   border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font:500 13px var(--font);
   cursor:pointer;white-space:nowrap;box-shadow:var(--shadow-sm);transition:background .15s,border-color .15s,transform .05s}
 .btn:hover{border-color:var(--faint);background:var(--surface-2)}
@@ -123,21 +123,21 @@ a{color:inherit}
 .btn.ghost{background:transparent;border-color:transparent;box-shadow:none}
 .btn.ghost:hover{background:var(--surface-2)}
 .btn.icon{width:34px;padding:0;justify-content:center}
-.btn.sm{height:28px;padding:0 10px;font-size:12px;border-radius:8px}
+.btn.sm{height:28px;padding:0 10px;font-size:12px;border-radius:3px}
 .btn.on-good{background:var(--good);border-color:var(--good);color:#fff}
 .btn.on-bad{background:var(--surface-2);color:var(--muted);text-decoration:line-through}
 
 /* segmented control */
-.seg{display:inline-flex;max-width:100%;overflow-x:auto;scrollbar-width:none;padding:3px;gap:2px;background:var(--bg-2);border:1px solid var(--line);border-radius:10px}
+.seg{display:inline-flex;max-width:100%;overflow-x:auto;scrollbar-width:none;padding:3px;gap:2px;background:var(--bg-2);border:1px solid var(--line);border-radius:3px}
 .seg button{border:0;background:transparent;color:var(--muted);font:500 12.5px var(--font);height:28px;padding:0 11px;
-  border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  border-radius:3px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .seg button:hover{color:var(--ink)}
 .seg button[aria-pressed="true"]{background:var(--raise);color:var(--ink);box-shadow:var(--shadow-sm),0 0 0 1px var(--line)}
 .seg .count{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
 
 /* form bits */
 .field{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;white-space:nowrap}
-select.input{appearance:none;height:34px;padding:0 30px 0 11px;border-radius:9px;border:1px solid var(--line-2);
+select.input{appearance:none;height:34px;padding:0 30px 0 11px;border-radius:3px;border:1px solid var(--line-2);
   background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
   color:var(--ink);font:500 13px var(--font);cursor:pointer}
 input[type=range]{appearance:none;-webkit-appearance:none;width:120px;height:4px;border-radius:4px;background:var(--line-2);outline:none}
@@ -161,7 +161,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 
 /* tags */
 .tags{display:flex;flex-wrap:wrap;gap:5px}
-.tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:999px;font-size:11.5px;font-weight:550;
+.tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:3px;font-size:11.5px;font-weight:550;
   background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2);white-space:nowrap}
 .tag.good{color:var(--good);background:color-mix(in srgb,var(--good) 10%,transparent);border-color:color-mix(in srgb,var(--good) 25%,transparent)}
 .tag.warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent);border-color:color-mix(in srgb,var(--warn) 25%,transparent)}
@@ -177,7 +177,7 @@ details.note p{margin:6px 0;max-width:80ch}
 
 /* toast */
 #toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);opacity:0;z-index:90;pointer-events:none;
-  background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-weight:550;font-size:13px;
+  background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:3px;font-weight:550;font-size:13px;
   box-shadow:var(--shadow-lg);transition:opacity .2s,transform .2s}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 
@@ -187,9 +187,11 @@ details.note p{margin:6px 0;max-width:80ch}
 .ring>span{width:calc(100% - 6px);height:calc(100% - 6px);border-radius:50%;background:var(--surface);display:grid;
   place-items:center;font-weight:700;font-size:calc(var(--sz,40px)*.32);font-variant-numeric:tabular-nums}
 
-.bar{height:6px;border-radius:6px;background:var(--line);overflow:hidden}
-.bar>i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
 
+/* square corners throughout */
+.btn,.btn.sm,.seg,.seg button,select.input,.tag,kbd,#toast,.bar,.bar>i{border-radius:3px}
 .empty{padding:60px 20px;text-align:center;color:var(--muted);grid-column:1/-1}
 .empty .ic{margin:0 auto 10px;opacity:.5}
 ::selection{background:var(--accent-soft)}
