@@ -10,6 +10,7 @@ import pytest
 
 import synth
 from isr import app as A
+from isr.camera import read_photo_meta as read_meta
 from isr.site import demo
 
 
@@ -55,10 +56,11 @@ def studio(tmp_path_factory):
 def test_home_lists_three_sections(studio):
     code, page = studio["call"]("/", raw=True)
     assert code == 200 and b"ISRStudio" in page
-    for word in (b"SAR", b"Survey", b"Art", b"Stakeout", b"New search", b"New survey", b"New selection", b"New stakeout"):
+    for word in (b"SAR", b"Survey", b"Art", b"Stakeout", b"New search", b"New survey", b"New stakeout", b"Export all to a folder"):
         assert word in page
     code, home = studio["call"]("/api/home")
-    assert set(home["jobs"]) == {"sar", "survey", "art", "stakeout"} and home["workspace"].endswith("ws")
+    assert set(home["jobs"]) == {"sar", "survey", "stakeout"} and set(home["art"]) == {"items", "busy"}
+    assert b"New selection" not in page  # Art is no longer something you start; it fills itself and home["workspace"].endswith("ws")
 
 
 def test_folder_picker(studio):
@@ -132,14 +134,6 @@ def test_survey_job_opens_in_the_editor(studio):
     assert "report written" in studio["call"]("/api/home")[1]["jobs"]["survey"][0]["summary"]
 
 
-def test_art_job(studio):
-    s = studio["run"]("art", source=str(studio["photos"]), top=2)
-    assert s["state"] == "done" and s["url"] == "/art/card/"
-    code, page = studio["call"]("/art/card/gallery.html", raw=True)
-    assert code == 200 and b"isrbar" in page
-    assert "top 2 suggested" in studio["call"]("/api/home")[1]["jobs"]["art"][0]["summary"]
-
-
 def test_sar_demo_finds_all_three_people(studio):
     s = studio["run"]("sar", demo=True)
     assert s["state"] == "done" and s["url"] == "/sar/demo-search/"
@@ -150,19 +144,6 @@ def test_sar_demo_finds_all_three_people(studio):
     for photo, colour in (("DJI_0002.JPG", "red"), ("DJI_0004.JPG", "orange"), ("DJI_0005.JPG", "blue")):
         assert any(colour in label for label in hit.get(photo, [])), (photo, hit)
     assert all(d["lat"] is not None for p in data["photos"] for d in p["detections"])
-
-
-def test_art_demo_ranks_keepers_above_rejects(studio):
-    s = studio["run"]("art", demo=True, top=6)
-    assert s["state"] == "done" and s["url"] == "/art/demo-selection/"
-    data = json.loads((studio["root"] / "ws" / "art" / "demo-selection" / "studio.json").read_text())
-    score = {p["name"].split("_", 2)[2].rsplit(".", 1)[0]: p["score"] for p in data["photos"]}
-    assert len(score) == 10
-    for bad in ("lake_blurred", "lake_overexposed", "lake_hazy"):
-        assert score[bad] < score["lake"], (bad, score)
-    assert data["summary"]["groups"] < data["summary"]["photos"]  # the two coastline frames are one moment
-    assert (studio["root"] / "ws" / "_demo_photos" / "art").is_dir()
-    assert studio["call"]("/api/home")[1]["jobs"]["art"][0]["name"] == "Demo selection"
 
 
 def test_watch_demo_finds_the_weekly_pattern(studio):
@@ -288,7 +269,7 @@ def test_stakeout_location_and_old_folder_name(studio, tmp_path):
     (tmp_path / "ws" / "watch" / "old-job").mkdir(parents=True)  # the section used to be called Watch
     A.Studio(tmp_path / "ws")
     assert (tmp_path / "ws" / "stakeout" / "old-job").is_dir() and not (tmp_path / "ws" / "watch").exists()
-    assert list(A.SECTIONS) == ["sar", "survey", "stakeout", "art"]
+    assert list(A.SECTIONS) == ["sar", "survey", "stakeout"]
 
 
 def test_watch_reads_file_times_and_interval_cameras(tmp_path):
@@ -333,13 +314,94 @@ def test_errors_and_safety(studio):
     assert call("/api/home", headers={"Host": "evil.example"})[0] == 403
     assert call("/api/delete", {"section": "sar", "job": "../survey"})[0] == 404
     assert call("/api/delete", {"section": "sar", "job": "x"}, headers={"Origin": "http://evil.example"})[0] == 403
+    assert call("/api/new", {"section": "art", "source": str(studio["photos"])})[0] == 400  # no longer a section
+
+
+def _art_settled(studio, want=None):
+    for _ in range(400):
+        a = studio["call"]("/api/home")[1]["art"]
+        if not a["busy"] and (want is None or want(a)):
+            return a
+        time.sleep(0.25)
+    raise AssertionError("art search did not finish")
+
+
+def test_art_is_gathered_from_other_jobs_and_exported(studio):
+    """A set with keepers and rejects goes through SAR; the keepers turn up in the gallery, edited, and export."""
+    from PIL import Image
+    from isr import demos
+
+    card = studio["root"] / "scenic"
+    demos.write_art_demo(card)
+    s = studio["run"]("sar", source=str(card), name="Coast flight")
+    assert s["state"] == "done"
+    a = _art_settled(studio, lambda a: any(i["from"] == "Coast flight" for i in a["items"]))
+    mine = [i for i in a["items"] if i["from"] == "Coast flight"]
+    names = " ".join(i["name"] for i in mine)
+    assert 3 <= len(mine) <= 12 and "crop_rows" in names and "coast" in names
+    for reject in ("blurred", "overexposed"):  # faults an edit cannot fix never make the gallery
+        assert reject not in names
+    assert names.count("coast") == 1  # a burst counts once
+    assert all(i["score"] >= 66 and i["section"] == "sar" for i in mine)
+    code, img = studio["call"](f"/art/{mine[0]['dir']}/{mine[0]['edited']}", raw=True)
+    assert code == 200 and img[:2] == b"\xff\xd8"
+    assert studio["call"](f"/art/{mine[0]['dir']}/{mine[0]['preview']}", raw=True)[0] == 200
+    edited = studio["root"] / "ws" / "art" / mine[0]["dir"] / mine[0]["edited"]
+    assert read_meta(edited).lat == pytest.approx(read_meta(Path(mine[0]["original"])).lat)  # metadata survives the edit
+    # remove one, then export the rest
+    studio["call"]("/api/art/remove", {"id": mine[-1]["id"]})
+    left = [i for i in studio["call"]("/api/home")[1]["art"]["items"]]
+    assert mine[-1]["id"] not in [i["id"] for i in left]
+    code, r = studio["call"]("/api/art/export", {})
+    dest = Path(r["path"])
+    assert code == 200 and r["count"] == len(left) and dest.parent.name == "art-export"
+    files = sorted(p.name for p in dest.glob("*.jpg"))
+    assert len(files) == len(left) == len(set(files))
+    rows = (dest / "pictures.csv").read_text().splitlines()
+    assert rows[0].startswith("file,score,qualities") and len(rows) == len(left) + 1
+    with Image.open(dest / files[0]) as im:
+        assert im.width >= 1500  # full size, not a preview
+    assert len(list(card.glob("*.JPG"))) == 10  # the card itself is untouched
+
+
+def test_art_keeps_one_of_each_lookalike(studio, tmp_path):
+    """The same view shot again an hour later, and the same card run through a second job: one copy each."""
+    import shutil
+    from PIL import Image
+    from isr import art, demos
+    from isr.synth import save_dji_jpeg
+
+    before = _art_settled(studio)["items"]
+    card = studio["root"] / "scenic"
+    again = studio["root"] / "scenic2"
+    shutil.copytree(card, again)
+    with Image.open(card / "DJI_0003_crop_rows.JPG") as im:  # the crop rows once more, an hour on, a touch darker
+        darker = im.convert("RGB").point(lambda v: int(v * 0.93))
+    save_dji_jpeg(darker, again / "DJI_0099_crop_rows_later.JPG", demos.LAT, demos.LON, 80, when="2026:11:16 11:10:00")
+    assert studio["run"]("sar", source=str(again), name="Coast flight again")["state"] == "done"
+    _art_settled(studio, lambda a: (studio["root"] / "ws" / "art" / "sar--coast-flight-again" / "art.json").exists())
+    own = json.loads((studio["root"] / "ws" / "art" / "sar--coast-flight-again" / "art.json").read_text())["items"]
+    assert sum("crop_rows" in i["name"] for i in own) == 1  # within the job: the later, darker copy lost
+    after = _art_settled(studio)["items"]
+    assert len(after) == len(before)  # across jobs: nothing is shown twice
+    assert sum("crop_rows" in i["name"] for i in after) <= 1 and sum("coast" in i["name"] for i in after) <= 1
+    assert art.alike("f" * 64, "f" * 64) and not art.alike("f" * 64, "0" * 64) and not art.alike(None, "f" * 64)
+
+
+def test_stakeout_photos_are_sampled_for_art(studio):
+    a = _art_settled(studio)
+    d = studio["root"] / "ws" / "art" / "stakeout--demo-gate-one-week"
+    assert d.is_dir() and json.loads((d / "art.json").read_text())["scored"] <= 40
+    assert sum(i["section"] == "stakeout" for i in a["items"]) <= 1  # a week of the same gate is one picture at most
+    assert not any(i["from"] == "Demo search" for i in a["items"])  # plain search frames do not clear the bar
 
 
 def test_delete_job(studio):
-    s = studio["run"]("art", source=str(studio["photos"]), name="Throwaway", top=1, enhance=False)
-    d = studio["root"] / "ws" / "art" / "throwaway"
+    s = studio["run"]("sar", source=str(studio["photos"]), name="Throwaway")
+    d = studio["root"] / "ws" / "sar" / "throwaway"
     assert s["state"] == "done" and d.is_dir()
-    assert studio["call"]("/api/delete", {"section": "art", "job": "throwaway"})[0] == 200 and not d.exists()
+    _art_settled(studio)
+    assert studio["call"]("/api/delete", {"section": "sar", "job": "throwaway"})[0] == 200 and not d.exists()
     assert studio["photos"].is_dir() and len(list(studio["photos"].iterdir())) == 2  # source photos untouched
 
 

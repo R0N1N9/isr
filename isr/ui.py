@@ -70,14 +70,14 @@ CSS = r"""
   --shadow-sm:0 1px 2px rgba(16,24,40,.05);
   --shadow:0 1px 2px rgba(16,24,40,.04),0 8px 24px -8px rgba(16,24,40,.12);
   --shadow-lg:0 24px 64px -16px rgba(16,24,40,.28);
-  --r-sm:8px; --r:12px; --r-lg:16px;
+  --r-sm:9px; --r:14px; --r-lg:20px;
   --font: Inter, "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   --glass: rgba(255,255,255,.72);
 }
 :root[data-theme="dark"]{
   color-scheme: dark;
-  --bg:#0a0b0e; --bg-2:#0f1115; --surface:#121419; --surface-2:#171a20; --raise:#1b1e25;
+  --bg:#07080b; --bg-2:#0c0e12; --surface:#101216; --surface-2:#15181d; --raise:#1a1d23;
   --ink:#eef0f4; --ink-2:#c5cad4; --muted:#8b93a3; --faint:#5d6574;
   --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
   --accent:#7c7cff; --accent-2:#3dd6e8; --accent-soft:rgba(124,124,255,.14);
@@ -104,7 +104,7 @@ a{color:inherit}
   background:var(--glass);backdrop-filter:saturate(1.6) blur(16px);-webkit-backdrop-filter:saturate(1.6) blur(16px);
   border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
-.brand-name{font-weight:650;letter-spacing:-.01em;font-size:15px;white-space:nowrap}
+.brand-name{font-weight:600;letter-spacing:-.015em;font-size:15px;white-space:nowrap}
 .brand-name span{color:var(--muted);font-weight:500}
 .crumb{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .topbar .spacer{flex:1}

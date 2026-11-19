@@ -1,8 +1,7 @@
-"""ISRStudio: one window for all four jobs.
+"""ISRStudio: one window for three jobs, and an art gallery they fill as a by-product.
 
 * **SAR**: scan photos for missing persons or targets of interest.
 * **Survey**: assess the security posture of a site.
-* **Art**: find the photos worth publishing or selling.
 * **Stakeout**: read a fixed camera's photos for the site's pattern of activity.
 
 It is a local web app: ``isrstudio`` starts a server on 127.0.0.1 and opens
@@ -44,11 +43,6 @@ SECTIONS = {
                  "blurb": "Leave a camera on a gate or approach for a day or a week, then drop its photos here. See when "
                           "the place is busy, dead, or visited out of hours, and time guard posts and patrols to match.",
                  "new": "New stakeout"},
-    "art": {"title": "Art", "long": "Stock and portfolio picks", "main": "gallery.html", "icon": "image",
-            "color": "#e5484d",
-            "blurb": "Rank a card of photos for stock libraries, prints or a portfolio, group near-duplicates, and "
-                     "auto-edit the best frames.",
-            "new": "New selection"},
 }
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,60}$")
 EXTS = (".jpg", ".jpeg")
@@ -66,14 +60,15 @@ class Studio:
         self.ws = Path(workspace).expanduser().resolve()
         if (self.ws / "watch").is_dir() and not (self.ws / "stakeout").exists():
             (self.ws / "watch").rename(self.ws / "stakeout")  # the section's earlier name
-        for s in SECTIONS:
+        for s in (*SECTIONS, "art"):
             (self.ws / s).mkdir(parents=True, exist_ok=True)
         self.tasks: dict[str, dict] = {}
+        self.art_busy: dict[str, str] = {}  # jobs whose photos are being looked through for art right now
 
     # -- jobs on disk ----------------------------------------------------------
 
     def job_dir(self, section: str, job: str) -> Path | None:
-        if section not in SECTIONS or not SLUG.match(job or ""):
+        if section not in (*SECTIONS, "art") or not SLUG.match(job or ""):
             return None
         d = self.ws / section / job
         return d if d.is_dir() else None
@@ -102,9 +97,6 @@ class Studio:
         if section == "sar":
             s = json.loads((d / "results.json").read_text())["summary"]
             return f"{s['photos']} photos · {s['detections']} candidates"
-        if section == "art":
-            s = json.loads((d / "studio.json").read_text())["summary"]
-            return f"{s['photos']} photos · top {s['top']} suggested"
         if section == "stakeout":
             s = json.loads((d / "activity.json").read_text())["summary"]
             return f"{s['photos']} photos · {s['events']} movements over {s['days']:g} days"
@@ -121,6 +113,36 @@ class Studio:
         d = self.ws / section / slug
         d.mkdir(parents=True)
         return d
+
+    def find_art(self, section: str, job: str, name: str, src: Path) -> None:
+        """After a job: look through its photos for stock-worthy frames, in the background."""
+        from . import art
+
+        key = f"{section}--{job}"
+        dest = self.ws / "art" / key
+        if dest.exists() or not src.is_dir():
+            return
+        self.art_busy[key] = name
+
+        def work():
+            try:
+                if section == "survey":
+                    from .site.survey import find_photos
+                    photos = find_photos(src, exclude=self.ws / section / job)
+                else:
+                    from .triage.pipeline import find_photos
+                    photos = find_photos(src)
+                dest.mkdir(parents=True)
+                art.harvest(photos, src, dest, section, job, name)
+            except BaseException as e:  # never let the side-show break anything
+                if not isinstance(e, (Exception, SystemExit)):
+                    raise
+                traceback.print_exc()
+                shutil.rmtree(dest, ignore_errors=True)
+            finally:
+                self.art_busy.pop(key, None)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def delete(self, section: str, job: str) -> bool:
         d = self.job_dir(section, job)
@@ -159,12 +181,13 @@ class Studio:
                     src = self.ws / "_demo_photos" / section
                     if not any(src.glob("*.JPG")):
                         log("Painting a made-up set of photos to work on...")
-                        {"sar": demos.write_sar_demo, "art": demos.write_art_demo, "stakeout": demos.write_watch_demo}[section](src)
+                        {"sar": demos.write_sar_demo, "stakeout": demos.write_watch_demo}[section](src)
                 RUNNERS[section](src, out, name, opts, log)
                 (out / "job.json").write_text(json.dumps({
                     "name": name, "section": section, "source": "" if demo and section == "survey" else str(src),
                     "created": time.strftime("%Y-%m-%d %H:%M:%S")}))
                 task.update(state="done", url=f"/{section}/{out.name}/")
+                self.find_art(section, out.name, name, out / "source_photos" if demo and section == "survey" else src)
             except BaseException as e:  # SystemExit is how the pipelines report "no photos found"
                 if not isinstance(e, (Exception, SystemExit)):
                     raise
@@ -214,17 +237,6 @@ def run_survey_job(src, out, name, opts, log):
                build_map=bool(opts.get("build_map")))
 
 
-def run_art(src, out, name, opts, log):
-    from .studio.gallery import write_gallery
-    from .studio.pipeline import StudioConfig, run_studio
-
-    top = int(opts.get("top") or 30)
-    data = run_studio(src, out, StudioConfig(top=max(1, min(500, top)), enhance=opts.get("enhance", True) is not False),
-                      log)
-    write_gallery(data, out)
-
-
-DEMO_NAMES = {"sar": "Demo search", "survey": "Demo property", "art": "Demo selection", "stakeout": "Demo gate, one week"}
 def run_watch_job(src, out, name, opts, log):
     from .stakeout.pipeline import run_watch
     from .stakeout.report import write_report
@@ -254,7 +266,8 @@ def parse_location(text) -> tuple[float, float] | None:
     return lat, lon
 
 
-RUNNERS = {"sar": run_sar, "survey": run_survey_job, "art": run_art, "stakeout": run_watch_job}
+DEMO_NAMES = {"sar": "Demo search", "survey": "Demo property", "stakeout": "Demo gate, one week"}
+RUNNERS = {"sar": run_sar, "survey": run_survey_job, "stakeout": run_watch_job}
 
 
 def list_dir(path: str | None) -> dict:
@@ -354,11 +367,25 @@ def locate(name: str, samples: list, is_dir: bool = True, near: str | None = Non
 # ---------------------------------------------------------------------------
 
 CSS = r"""
-.wrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px}
+.wrap{max-width:1320px;margin:0 auto;padding:28px 24px 70px}
 .hero h1{font-size:30px;letter-spacing:-.03em;margin:0;font-weight:700}
 .hero p{color:var(--muted);margin:6px 0 22px;max-width:70ch}
-.cols{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start}
-@media (max-width:1250px){.cols{grid-template-columns:repeat(2,1fr)}}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
+@media (max-width:1050px){.cols{grid-template-columns:1fr}}
+.art{margin-top:18px;background:var(--surface);border:1px solid var(--line);border-top:3px solid #e5484d;border-radius:var(--r-lg);box-shadow:var(--shadow)}
+.art-h{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line)}
+.art-h .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:#fff;background:#e5484d}
+.art-h h2{margin:0;font-size:19px}.art-h .long{color:var(--muted);font-size:12.5px}
+.art-h .grow{flex:1;min-width:220px}.art-h p{margin:4px 0 0;color:var(--ink-2);font-size:13px;max-width:78ch}
+#art-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;padding:14px}
+.pic{position:relative;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#000;aspect-ratio:4/3}
+.pic img{width:100%;height:100%;object-fit:cover;display:block}
+.pic .cap{position:absolute;inset:auto 0 0 0;padding:18px 9px 7px;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;font-size:11.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pic .sc{position:absolute;top:7px;left:7px;padding:1px 7px;border-radius:999px;background:rgba(10,11,14,.65);color:#fff;font:700 11px var(--font)}
+.pic button{position:absolute;top:5px;right:5px;opacity:0;background:rgba(10,11,14,.7);color:#fff;border-color:transparent}
+.pic:hover button,.pic button:focus{opacity:1}
+#art-note{padding:0 18px 14px;color:var(--muted);font-size:12.5px}
 @media (max-width:700px){.cols{grid-template-columns:1fr}}
 .sect{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
 .sect-h{padding:18px 18px 16px;border-bottom:1px solid var(--line);border-top:3px solid var(--c)}
@@ -409,6 +436,75 @@ dialog::backdrop{background:rgba(5,6,8,.6);backdrop-filter:blur(3px)}
 .spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line-2);border-top-color:var(--accent);animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 .err{color:var(--bad);font-weight:550}
+
+/* ---- look: quiet, spacious, glass ---- */
+body{background:var(--bg)}
+body::before{background:
+  radial-gradient(900px 520px at 12% -8%,color-mix(in srgb,var(--accent) 16%,transparent),transparent 62%),
+  radial-gradient(760px 480px at 96% 4%,rgba(34,184,207,.10),transparent 60%),
+  radial-gradient(900px 600px at 50% 118%,rgba(229,72,77,.13),transparent 62%)}
+.topbar{background:transparent;border-bottom-color:transparent;backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);padding:16px 32px}
+.wrap{max-width:1240px;padding:44px 32px 90px}
+.hero h1{font-size:44px;font-weight:600;letter-spacing:-.045em;line-height:1.05}
+.hero p{font-size:15.5px;line-height:1.6;margin:14px 0 40px;max-width:58ch;color:var(--muted)}
+.cols{gap:20px}
+.sect{border-radius:22px;border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 82%,transparent);
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 30px 60px -40px rgba(0,0,0,.55);transition:border-color .25s,transform .25s,box-shadow .25s}
+.sect:hover{border-color:color-mix(in srgb,var(--c) 45%,var(--line));transform:translateY(-2px)}
+.sect-h{padding:26px 26px 22px;border-top:0;border-bottom:1px solid var(--line)}
+.sect-h .top{gap:14px}
+.sect-h .ico{width:40px;height:40px;border-radius:12px;color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 28%,transparent) inset}
+.sect-h h2{font-size:21px;font-weight:600;letter-spacing:-.02em}
+.sect-h .long{font-size:12px;letter-spacing:.02em;margin-top:1px}
+.sect-h p{font-size:13.5px;line-height:1.6;color:var(--muted);margin:18px 0 22px;min-height:88px}
+.btn{border-radius:11px;height:36px;font-weight:550;box-shadow:none}
+.sect .btn.primary{background:var(--c);box-shadow:none;border:0;padding:0 16px}
+.sect .btn.primary:hover{filter:brightness(1.12)}
+.sect .btn:not(.primary){background:transparent;border-color:var(--line-2);color:var(--ink-2)}
+.sect .btn:not(.primary):hover{border-color:var(--faint);color:var(--ink);background:transparent}
+.jobs{padding:10px 12px 12px}
+.job{padding:11px 14px;border-radius:12px}
+.job .n{font-weight:550}
+.none{padding:16px 14px;color:var(--faint)}
+.foot{margin-top:34px;color:var(--faint)}
+/* the art gallery: a pane of glass over a soft glow */
+.art{position:relative;margin-top:28px;border-radius:26px;border:1px solid rgba(255,255,255,.14);
+  background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.035) 45%,rgba(255,255,255,.06));
+  backdrop-filter:blur(28px) saturate(1.5);-webkit-backdrop-filter:blur(28px) saturate(1.5);
+  box-shadow:0 1px 0 rgba(255,255,255,.22) inset,0 -1px 0 rgba(255,255,255,.04) inset,0 40px 90px -40px rgba(0,0,0,.7)}
+.art::before{content:"";position:absolute;inset:-40px -20px;z-index:-1;pointer-events:none;filter:blur(60px);opacity:.75;
+  background:radial-gradient(420px 220px at 14% 30%,rgba(229,72,77,.42),transparent 70%),
+             radial-gradient(460px 240px at 82% 70%,color-mix(in srgb,var(--accent) 55%,transparent),transparent 70%),
+             radial-gradient(360px 200px at 55% 10%,rgba(34,184,207,.30),transparent 70%)}
+.art-h{padding:26px 28px;border-bottom:1px solid rgba(255,255,255,.09);gap:14px 18px}
+.art-h .ico{width:40px;height:40px;border-radius:12px;color:#fff;background:rgba(255,255,255,.12);box-shadow:0 0 0 1px rgba(255,255,255,.18) inset}
+.art-h h2{font-size:21px;font-weight:600;letter-spacing:-.02em}
+.art-h p{font-size:13.5px;line-height:1.6;color:var(--ink-2);opacity:.85;margin-top:6px}
+#art-export{background:rgba(255,255,255,.14)!important;box-shadow:0 0 0 1px rgba(255,255,255,.22) inset!important;color:var(--ink);border:0;
+  backdrop-filter:blur(10px);height:40px;padding:0 18px;border-radius:12px}
+#art-export:hover{background:rgba(255,255,255,.22)!important}
+#art-export:disabled{opacity:.45;cursor:default}
+#art-grid{gap:14px;padding:22px 28px 10px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+#art-grid:empty{padding:0}
+.pic{border-radius:16px;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 40px -22px rgba(0,0,0,.8);transition:transform .25s,box-shadow .25s}
+.pic:hover{transform:translateY(-3px) scale(1.012);box-shadow:0 26px 50px -22px rgba(0,0,0,.9)}
+.pic .sc{background:rgba(10,11,14,.45);backdrop-filter:blur(8px);font-weight:600;border:1px solid rgba(255,255,255,.16)}
+.pic .cap{font-size:11.5px;letter-spacing:.01em;padding:26px 12px 10px}
+#art-note{padding:14px 28px 24px;color:var(--ink-2);opacity:.7}
+:root:not([data-theme="dark"]) .art{border-color:rgba(13,17,23,.10);background:linear-gradient(135deg,rgba(255,255,255,.78),rgba(255,255,255,.52));
+  box-shadow:0 1px 0 #fff inset,0 40px 90px -50px rgba(16,24,40,.35)}
+:root:not([data-theme="dark"]) .art-h{border-bottom-color:rgba(13,17,23,.07)}
+:root:not([data-theme="dark"]) .art-h .ico{color:#e5484d;background:rgba(229,72,77,.10);box-shadow:0 0 0 1px rgba(229,72,77,.22) inset}
+:root:not([data-theme="dark"]) #art-export{background:rgba(13,17,23,.06)!important;box-shadow:0 0 0 1px rgba(13,17,23,.12) inset!important}
+:root:not([data-theme="dark"]) .sect{box-shadow:0 1px 0 #fff inset,0 30px 60px -44px rgba(16,24,40,.3)}
+dialog{border-radius:22px;border:1px solid var(--line-2);background:color-mix(in srgb,var(--surface) 88%,transparent);
+  backdrop-filter:blur(30px) saturate(1.4);-webkit-backdrop-filter:blur(30px) saturate(1.4)}
+dialog::backdrop{background:rgba(5,6,8,.55);backdrop-filter:blur(6px)}
+.dlg-h{padding:20px 24px;font-weight:600;font-size:17px;letter-spacing:-.01em}.dlg-b{padding:20px 24px}.dlg-f{padding:16px 24px}
+.fld input[type=text],.fld input[type=number]{border-radius:11px;height:38px;background:color-mix(in srgb,var(--surface) 60%,transparent)}
+.picker,.dropzone{border-radius:14px}
+@media (max-width:700px){.wrap{padding:26px 18px 60px}.hero h1{font-size:32px}.topbar{padding:12px 18px}}
 """
 
 JS = r"""
@@ -426,13 +522,27 @@ async function home() {
       <button class="btn icon ghost sm" data-del="${k}/${j.job}" data-name="${esc(j.name)}" title="Delete this job" aria-label="Delete">${DATA.trash}</button>
       <span class="m">${esc(j.created.slice(0, 16))}${j.summary ? " · " + esc(j.summary) : ""}</span></a>`).join("")
       : `<div class="none">No jobs yet.</div>`; }
+  const a = d.art;
+  $("#art-count").textContent = a.items.length ? `· ${a.items.length} picture${a.items.length === 1 ? "" : "s"}` : "";
+  $("#art-grid").innerHTML = a.items.map(it => `<a class="pic" href="/art/${it.dir}/${esc(it.edited)}" target="_blank" title="${esc(it.name)} · ${esc(it.tags.join(", "))}">
+    <img src="/art/${it.dir}/${esc(it.preview)}" alt="" loading="lazy"><span class="sc">${it.score}</span>
+    <button class="btn icon sm" data-art-rm="${esc(it.id)}" title="Remove from the gallery" aria-label="Remove">${DATA.trash}</button>
+    <span class="cap">${esc(it.from)}${it.tags.length ? " · " + esc(it.tags.slice(0, 2).join(", ")) : ""}</span></a>`).join("");
+  $("#art-note").textContent = (a.busy.length ? "Looking through " + a.busy.join(", ") + "… " : "") +
+    (a.items.length ? "Check each picture for recognisable people or private property before selling it: stock libraries ask for a release."
+      : a.busy.length ? "" : "Nothing yet. Pictures appear here after a job, when its photos include any worth keeping.");
+  $("#art-export").disabled = !a.items.length;
+  clearTimeout(window.__artT); if (a.busy.length) window.__artT = setTimeout(home, 2500);
 }
+$("#art-export").addEventListener("click", async () => { const r = await api("/api/art/export", {});
+  $("#art-note").textContent = `Exported ${r.count} picture${r.count === 1 ? "" : "s"} to ${r.path} (full size, edited, with pictures.csv listing them).`; toast("Exported " + r.count); });
 document.addEventListener("click", async ev => {
   const del = ev.target.closest("[data-del]");
   if (del) { ev.preventDefault(); if (!confirm(`Delete "${del.dataset.name}" and everything in its folder? This cannot be undone.`)) return;
     const [section, job] = del.dataset.del.split("/"); await api("/api/delete", {section, job}); toast("Deleted"); return home(); }
   const nw = ev.target.closest("[data-new]"); if (nw) return openNew(nw.dataset.new);
-  const dm = ev.target.closest("[data-demo]"); if (dm) return begin(dm.dataset.demo, {demo: true, top: 6});
+  const dm = ev.target.closest("[data-demo]"); if (dm) return begin(dm.dataset.demo, {demo: true});
+  const rm = ev.target.closest("[data-art-rm]"); if (rm) { ev.preventDefault(); await api("/api/art/remove", {id: rm.dataset.artRm}); return home(); }
   const row = ev.target.closest(".picker [data-path]"); if (row) return browse(row.dataset.path);
 });
 function openNew(k, viaDrop) {
@@ -455,7 +565,7 @@ async function browse(path) {
 }
 $("#go").addEventListener("click", () => begin(cur, {source: here, name: $("#f-name").value,
   colors: $("#f-colors").value.split(/[,;]/).map(s => s.trim()).filter(Boolean), ai: $("#f-ai").checked,
-  detect: $("#f-detect").checked, build_map: $("#f-map").checked, top: +$("#f-top").value || 30,
+  detect: $("#f-detect").checked, build_map: $("#f-map").checked,
   watching: $("#f-watching").value, location: $("#f-loc").value, weather: $("#f-wx").checked && !!$("#f-loc").value.trim(), closed_from: +$("#f-c0").value, closed_to: +$("#f-c1").value}));
 async function begin(section, opts) {
   let t; try { t = await api("/api/new", {section, ...opts}); } catch (e) { $("#new-err").textContent = e.message; if (!$("#dlg").open) toast(e.message); return; }
@@ -529,9 +639,14 @@ def home_html() -> str:
 <div class="jobs" id="jobs-{k}"></div></section>''')
     body = f'''<header class="topbar"><div class="brand">{LOGO}<div class="brand-name">{APP_NAME}</div></div><div class="spacer"></div>
 <button class="btn ghost" id="quit" title="Stop the app">{icon("power")}<span class="lbl">Quit</span></button>{theme_button()}</header>
-<div class="wrap"><div class="hero"><h1>{APP_NAME}</h1>
-<p>Turn a card of drone photos into something you can act on. Press New, or drag a folder or drive onto a section. Everything runs on this computer; nothing is uploaded.</p></div>
+<div class="wrap"><div class="hero"><h1>Drone photos in.<br>Answers out.</h1>
+<p>Start a job, or drag a folder or drive onto a section. Everything runs on this computer; nothing is uploaded.</p></div>
 <div class="cols">{"".join(cards)}</div>
+<section class="art"><div class="art-h"><div class="ico">__ART__</div><div class="grow"><h2>Art <span class="long" id="art-count"></span></h2>
+<p>Stock-worthy frames found along the way. Every job looks through its own photos, keeps the ones that would stand up as
+pictures, and gives them a light touch-up. Remove any you would not put your name to, then export.</p></div>
+<button class="btn" id="art-export">__DL__Export all to a folder</button></div>
+<div id="art-grid"></div><div id="art-note"></div></section>
 <p class="foot">Jobs are kept in <span class="mono" id="ws"></span>. Each job folder holds its report and exports and can be copied elsewhere.</p></div>
 <dialog id="dlg"><div class="dlg-h" id="dlg-title"></div><div class="dlg-b">
 <div class="fld"><label>Folder of photos (the SD card's DCIM folder, or any folder of JPEGs)</label>
@@ -556,13 +671,12 @@ def home_html() -> str:
 <div class="hint">Used to work out sunrise, sunset and darkness for each photo. Right-click the spot in any map app to copy it.</div></div>
 <label class="check" data-only="stakeout"><input type="checkbox" id="f-wx" checked><span>Fetch the weather for those days to help set aside wind and rain
 <span class="muted">(needs the location and internet; sends only the location rounded to about 1 km and the dates to open-meteo.com)</span></span></label>
-<div class="fld" data-only="art"><label for="f-top">How many photos to suggest</label><input type="number" id="f-top" value="30" min="1" max="500"></div>
 <div class="err" id="new-err"></div></div>
 <div class="dlg-f"><button class="btn" id="cancel">Cancel</button><button class="btn primary" id="go">Start with this folder</button></div></dialog>
 <dialog id="run"><div class="dlg-h"><div class="spin" id="run-spin"></div><span id="run-title"></span></div>
 <div class="dlg-b"><div id="log"></div><div class="err" id="run-err"></div></div>
 <div class="dlg-f"><button class="btn" id="run-close" hidden>Close</button></div></dialog>'''
-    body = body.replace("__DROP__", icon("folder", 26))
+    body = body.replace("__DROP__", icon("folder", 26)).replace("__ART__", icon("image", 20)).replace("__DL__", icon("download"))
     data = {"sections": {k: {"title": s["title"], "new": s["new"], "color": s["color"], "icon": icon(s["icon"], 18)}
                          for k, s in SECTIONS.items()},
             "trash": icon("trash", 15), "folder": icon("folder", 16), "up": icon("chevron-left", 16)}
@@ -601,7 +715,10 @@ class AppHandler(LocalHandler):
         if path == "/api/ping":
             return self.json({"app": APP_NAME})
         if path == "/api/home":
-            return self.json({"workspace": str(st.ws), "jobs": {s: st.jobs(s) for s in SECTIONS}})
+            from . import art
+
+            return self.json({"workspace": str(st.ws), "jobs": {s: st.jobs(s) for s in SECTIONS},
+                              "art": {"items": art.collection(st.ws / "art"), "busy": list(st.art_busy.values())}})
         if path == "/api/ls":
             return self.json(list_dir((parse_qs(url.query).get("path") or [""])[0]))
         if path.startswith("/api/task/"):
@@ -615,7 +732,7 @@ class AppHandler(LocalHandler):
             return project_get(self, d, rest, prefix)
         if rest == "/":  # relative links in the page need the file name in the address
             self.send_response(302)
-            self.send_header("Location", f"{prefix}/{SECTIONS[section]['main']}")
+            self.send_header("Location", f"{prefix}/{SECTIONS[section]['main'] if section in SECTIONS else 'gallery.html'}")
             self.send_header("Content-Length", "0")
             return self.end_headers()
         return self.file(d, rest[1:], inject=SAR_BAR if section == "sar" and rest == "/report.html" else BAR % "")
@@ -648,6 +765,16 @@ class AppHandler(LocalHandler):
         if path == "/api/locate":
             return self.json({"paths": locate(body.get("name"), body.get("samples"), body.get("dir", True),
                                               body.get("near"))})
+        if path == "/api/art/remove":
+            from . import art
+
+            art.remove(st.ws / "art", str(body.get("id") or ""))
+            return self.json({"ok": True})
+        if path == "/api/art/export":
+            from . import art
+
+            dest, n = art.export(st.ws / "art", st.ws / "art-export")
+            return self.json({"path": str(dest), "count": n})
         if path == "/api/delete":
             return self.json({"ok": True}) if st.delete(body.get("section"), body.get("job")) else \
                 self.json({"error": "not found"}, 404)

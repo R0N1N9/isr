@@ -130,10 +130,11 @@ def group_similar(recs: list[dict], max_bits: int, window_s: float) -> list[list
     return list(groups.values())
 
 
-def run_studio(source: Path, out_dir: Path, cfg: StudioConfig, log=print) -> dict:
+def run_studio(source: Path, out_dir: Path, cfg: StudioConfig, log=print, photos: list[Path] | None = None) -> dict:
+    """Score, group and (optionally) edit. ``photos`` limits the run to those files under ``source``."""
     t0 = time.time()
     source, out_dir = Path(source), Path(out_dir)
-    photos = find_photos(source, exclude=out_dir)
+    photos = [Path(p) for p in photos] if photos is not None else find_photos(source, exclude=out_dir)
     if not photos:
         raise SystemExit(f"No JPEG photos found under {source}")
     for d in ("thumbs", "previews", "edited"):

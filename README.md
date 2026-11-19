@@ -1,14 +1,14 @@
 # ISRStudio
 
-Offline tools that turn a card of drone (UAV) photos into something you can act on. One app, four
-sections:
+Offline tools that turn a card of drone (UAV) photos into something you can act on. One app, three
+sections, and an art gallery they fill as a by-product:
 
 | Section | For | You get |
 |---|---|---|
 | **SAR** | Search and rescue: finding a missing person or a target of interest | Every photo scanned, hits ranked and placed on the map, a search report with coordinates, GPX/KML/CSV for ground teams |
 | **Survey** | Assessing the security posture of a site | Sightlines, blind spots, camera placement, access points and perimeter, as a report for the client |
 | **Stakeout** | A fixed camera left on a gate or approach for a day or a week | When the place is busy, dead, or visited out of hours, and what that means for posts and patrols |
-| **Art** | Stock libraries, prints and portfolios | Photos ranked for technical and artistic quality, near-duplicates grouped, the best frames auto-edited |
+| **Art** (gallery) | Stock libraries, prints and portfolios | Fills itself: stock-worthy frames found in any job's photos, lightly edited, ready to export |
 
 Everything runs on a laptop with no internet connection. Nothing is uploaded, and nothing is ever
 written to the SD card.
@@ -30,12 +30,23 @@ manager onto a section, or onto the New dialog, instead of browsing to it. Each 
   printable report of the confirmed finds.
 * **Survey** opens the plan editor. Trace the site, then **Generate report**.
 * **Stakeout** opens the activity report. Attach it to a survey to add timing to the guard plan.
-* **Art** opens the gallery. Pick favourites, compare originals with the edits.
+
+**Art** is not something you start. After each job the app looks through that job's photos in the
+background, keeps the frames that would stand up as pictures (best of each moment, scoring 66 or
+more out of 100, with no fault an edit cannot fix), gives them the light automatic touch-up, and
+adds them to the Art gallery at the bottom of the home screen. Lookalikes are pruned to the single
+best copy: frames from one burst, the same view shot again later, and the same picture arriving
+from two different jobs. A stakeout contributes one frame at
+most, since a fixed camera takes the same picture all week. Hover a picture to remove it.
+**Export all to a folder** copies the full-size edited pictures, with their original GPS and camera
+metadata, into `~/ISR-Studio/art-export/<date>/` together with `pictures.csv`, ready to upload to
+a stock library. Check each one first for recognisable people or private property: stock libraries
+ask for a release.
 
 No photos to hand? Each section has **Try the demo**, which paints a made-up set and runs the real
 tools on it: a six-frame search leg with three people to find (SAR), a property with a hidden side
-door (Survey), a flight's worth of keepers, a burst and rejects to rank (Art), and a week of a trail
-camera on a gate with rush hours, quiet weekends and visits in the small hours (Stakeout).
+door (Survey), and a week of a trail camera on a gate with rush hours, quiet weekends and visits in
+the small hours (Stakeout).
 
 Jobs are kept in `~/ISR-Studio/<section>/<job>/` and listed on the home screen, so you can reopen
 or delete them. Each job folder holds its report and exports and can be copied to a USB stick.
@@ -48,7 +59,8 @@ isrstudio --install-launcher
 ```
 
 Every section also works from the command line, which is what the rest of this document describes:
-`isr triage` (SAR), `survey` (Survey), `isr art` and `isr enhance` (Art), plus `isr plan` for
+`isr triage` (SAR), `survey` (Survey), `isr art` to rank a whole card for art yourself and
+`isr enhance` for the touch-ups, plus `isr plan` for
 mapping grids and SAR search patterns.
 
 ### Which aircraft
