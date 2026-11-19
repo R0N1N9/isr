@@ -1,4 +1,4 @@
-# ISR Studio
+# ISRStudio
 
 Offline tools that turn a card of drone (UAV) photos into something you can act on. One app, three
 sections:
@@ -12,7 +12,7 @@ sections:
 Everything runs on a laptop with no internet connection. Nothing is uploaded, and nothing is ever
 written to the SD card.
 
-![ISR Studio](docs/isr_studio.jpg)
+![ISRStudio](docs/isr_studio.jpg)
 
 ## Using the app
 
@@ -20,7 +20,7 @@ written to the SD card.
 isrstudio
 ```
 
-That opens ISR Studio in your browser (it is a page served from your own machine at `127.0.0.1`).
+That opens ISRStudio in your browser (it is a page served from your own machine at `127.0.0.1`).
 Pick a section, press **New**, choose the folder of photos (the card's `DCIM` folder, or any folder
 of JPEGs), and wait while it works. You can also drag a folder or an external drive from your file
 manager onto a section, or onto the New dialog, instead of browsing to it. Each job then opens in its own page:
@@ -370,7 +370,7 @@ from the DNG in Lightroom or Capture One. Art's ranking is still the fast way to
 
 ## Survey: site security assessment
 
-The Survey section of ISR Studio. Also its own command, `survey` (the same thing as `isr site`).
+The Survey section of ISRStudio. Also its own command, `survey` (the same thing as `isr site`).
 
 For a property you own or are responsible for: where can someone approach unseen, which doors and
 gates are unwatched, and where would cameras do the most good.
@@ -517,7 +517,7 @@ The tests generate synthetic DJI photos with real EXIF and XMP metadata and know
 (`tests/synth.py`). They check detection, geolocation to within 1.5 m, exports, pattern coverage,
 the `.kmz` structure, Art's ranking of degraded photos, duplicate grouping, horizon detection,
 and that edits keep metadata and never touch the originals. The app tests run a job in each
-section through the ISR Studio server. The site tests build the demo property
+section through the ISRStudio server. The site tests build the demo property
 (`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
 angled shots alone), that
 hidden doors rank highest and the recommended cameras cover them, the report, and the editor server.

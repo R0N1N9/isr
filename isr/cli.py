@@ -1,6 +1,6 @@
 """Command line entry point: ``isr app | triage | plan | art | enhance | site | info``.
 
-``isrstudio`` (or ``isr`` on its own, or ``isr studio``) opens the ISR Studio window.
+``isrstudio`` (or ``isr`` on its own, or ``isr studio``) opens the ISRStudio window.
 """
 
 from __future__ import annotations
@@ -376,17 +376,17 @@ def cmd_info(a) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="isr", description="ISR Studio: SAR, site survey and art selection from drone photos. "
+    ap = argparse.ArgumentParser(prog="isr", description="ISRStudio: SAR, site survey and art selection from drone photos. "
                                  "Run with no command to open the app window.")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    g = sub.add_parser("app", aliases=["studio"], help="open ISR Studio: SAR, Survey and Art in one window",
+    g = sub.add_parser("app", aliases=["studio"], help="open ISRStudio: SAR, Survey and Art in one window",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     g.add_argument("--workspace", default="~/ISR-Studio", help="folder where jobs are kept")
     g.add_argument("--port", type=int, default=8765, help="local port")
     g.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     g.add_argument("--install-launcher", action="store_true",
-                   help="add ISR Studio to the Linux applications menu, then exit")
+                   help="add ISRStudio to the Linux applications menu, then exit")
     g.set_defaults(func=cmd_app)
 
     t = sub.add_parser("triage", help="scan a folder / SD card for possible people and objects",

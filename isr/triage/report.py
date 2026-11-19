@@ -283,7 +283,7 @@ def _body() -> str:
     )
     return f"""
 <header class="topbar">
-  <div class="brand">{LOGO}<div class="brand-name">ISR Studio <span>/ SAR</span></div></div>
+  <div class="brand">{LOGO}<div class="brand-name">ISRStudio <span>/ SAR</span></div></div>
   <div class="crumb mono" id="src"></div>
   <div class="spacer"></div>
   <button class="btn" id="expCsv" title="Export confirmed as CSV">{icon("download")}<span class="lbl">CSV</span></button>

@@ -1,4 +1,4 @@
-"""ISR Studio, the combined app: three sections, jobs in a workspace, reports for each."""
+"""ISRStudio, the combined app: three sections, jobs in a workspace, reports for each."""
 
 import json
 import threading
@@ -54,7 +54,7 @@ def studio(tmp_path_factory):
 
 def test_home_lists_three_sections(studio):
     code, page = studio["call"]("/", raw=True)
-    assert code == 200 and b"ISR Studio" in page
+    assert code == 200 and b"ISRStudio" in page
     for word in (b"SAR", b"Survey", b"Art", b"New search", b"New survey", b"New selection"):
         assert word in page
     code, home = studio["call"]("/api/home")
@@ -195,7 +195,7 @@ def test_launcher_and_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     assert main(["app", "--install-launcher"]) == 0
     entry = (tmp_path / "applications" / "isr-studio.desktop").read_text()
-    assert "Name=ISR Studio" in entry and "-m isr app" in entry and (tmp_path / "icons" / "isr-studio.svg").exists()
+    assert "Name=ISRStudio" in entry and "-m isr app" in entry and (tmp_path / "icons" / "isr-studio.svg").exists()
     p = build_parser()
     assert p.parse_args(["studio"]).func is p.parse_args(["app"]).func  # "isr studio" opens the app
     assert p.parse_args(["art", "x"]).func is not p.parse_args(["app"]).func

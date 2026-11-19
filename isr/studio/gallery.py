@@ -277,7 +277,7 @@ def _body() -> str:
     )
     return f"""
 <header class="topbar">
-  <div class="brand">{LOGO}<div class="brand-name">ISR Studio <span>/ Art</span></div></div>
+  <div class="brand">{LOGO}<div class="brand-name">ISRStudio <span>/ Art</span></div></div>
   <div class="crumb mono" id="src"></div>
   <div class="spacer"></div>
   <button class="btn primary" id="expBtn">{icon("download")}<span class="lbl">Export picks</span>

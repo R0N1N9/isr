@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from urllib.parse import quote
 
-APP_NAME = "ISR Studio"
+APP_NAME = "ISRStudio"
 
 # Lucide-style 24px stroke icons (MIT-licensed shapes, redrawn inline)
 ICONS = {
@@ -102,8 +102,8 @@ a{color:inherit}
   background:var(--glass);backdrop-filter:saturate(1.6) blur(16px);-webkit-backdrop-filter:saturate(1.6) blur(16px);
   border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
-.brand-name{font-weight:700;letter-spacing:.09em;text-transform:uppercase;font-size:13px;white-space:nowrap}
-.brand-name span{color:var(--muted);font-weight:600}
+.brand-name{font-weight:650;letter-spacing:-.01em;font-size:15px;white-space:nowrap}
+.brand-name span{color:var(--muted);font-weight:500}
 .crumb{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .topbar .spacer{flex:1}
 @media (max-width:700px){.topbar{padding:10px 16px;gap:8px}.crumb,.brand-name span,.topbar .lbl{display:none}

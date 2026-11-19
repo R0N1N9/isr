@@ -33,7 +33,7 @@ from pathlib import Path
 VERSION = 1
 
 BRAND = "Ronin Sec"  # default "Prepared by" on a report; change it per project under Site in the editor
-APP = "Survey"  # this section of ISR Studio
+APP = "Survey"  # this section of ISRStudio
 
 DEFAULT_SETTINGS = {
     "cell_m": 0.5,  # analysis grid

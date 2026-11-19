@@ -1,4 +1,4 @@
-"""ISR Studio: one window for all three jobs.
+"""ISRStudio: one window for all three jobs.
 
 * **SAR**: scan photos for missing persons or targets of interest.
 * **Survey**: assess the security posture of a site.
@@ -467,8 +467,8 @@ addEventListener("drop", async ev => { ev.preventDefault(); dragN = 0; document.
   try { await dropped(dt); } catch (e) { $("#drop-msg").textContent = e.message; } });
 $("#run-close").addEventListener("click", () => $("#run").close());
 $("#cancel").addEventListener("click", () => $("#dlg").close());
-$("#quit").addEventListener("click", async () => { if (!confirm("Stop ISR Studio? Jobs are saved; start it again any time.")) return;
-  try { await api("/api/quit", {}); } catch (e) {} document.body.innerHTML = `<div class="wrap"><h1>ISR Studio has stopped.</h1><p class="muted">You can close this tab.</p></div>`; });
+$("#quit").addEventListener("click", async () => { if (!confirm("Stop ISRStudio? Jobs are saved; start it again any time.")) return;
+  try { await api("/api/quit", {}); } catch (e) {} document.body.innerHTML = `<div class="wrap"><h1>ISRStudio has stopped.</h1><p class="muted">You can close this tab.</p></div>`; });
 home();
 """
 
@@ -512,7 +512,7 @@ def home_html() -> str:
 
 # A small bar added to the SAR and Art pages when they are opened inside the app.
 BAR = """<style>#isrbar{position:fixed;left:16px;bottom:16px;z-index:80;display:flex;gap:8px}
-@media print{#isrbar{display:none}}</style><div id="isrbar"><a class="btn" href="/">&larr; ISR Studio</a>%s</div>"""
+@media print{#isrbar{display:none}}</style><div id="isrbar"><a class="btn" href="/">&larr; ISRStudio</a>%s</div>"""
 SAR_BAR = BAR % """<button class="btn primary" id="isr-rep">Search report</button><script>
 document.getElementById("isr-rep").onclick = async () => {
   let st = {}; try { st = JSON.parse(localStorage.getItem("isr-triage:" + DATA.summary.source + ":" + DATA.summary.generated) || "{}"); } catch (e) {}
@@ -625,7 +625,7 @@ def serve(workspace: Path, port: int = 8765, open_browser: bool = True) -> None:
 
 
 def install_launcher(workspace: Path | None = None) -> Path:
-    """Add ISR Studio to the Linux applications menu (a .desktop file in the user's own folder)."""
+    """Add ISRStudio to the Linux applications menu (a .desktop file in the user's own folder)."""
     data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
     ico = data / "icons" / "isr-studio.svg"
     ico.parent.mkdir(parents=True, exist_ok=True)

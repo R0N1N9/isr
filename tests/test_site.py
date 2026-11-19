@@ -350,7 +350,7 @@ def test_editor_server(project):
 
     try:
         code, page = call("/")
-        assert code == 200 and b"ISR Studio" in page
+        assert code == 200 and b"ISRStudio" in page
         code, body = call("/api/site")
         site = json.loads(body)
         assert code == 200 and len(site["features"]) == len(model["features"])

@@ -164,4 +164,4 @@ def run(srv: ThreadingHTTPServer, banner: str, open_browser: bool = True) -> Non
 
 def serve(project: Path, port: int = 8765, open_browser: bool = True) -> None:
     print(f"Everything you draw is saved to {Path(project) / 'site.json'}.")
-    run(make_server(project, port), "ISR Studio Survey editor", open_browser)
+    run(make_server(project, port), "ISRStudio Survey editor", open_browser)
