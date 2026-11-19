@@ -41,6 +41,8 @@ def find_photos(src: Path, exclude: Path | None = None) -> list[Path]:
     for p in sorted(src.rglob("*")):
         if p.suffix.lower() not in EXTS or p.name.startswith("."):
             continue
+        if any(part == "opensfm" or part.startswith("odm_") for part in p.parts):
+            continue  # OpenDroneMap's working copies of the same photos
         rp = p.resolve()
         if gen and (gen in rp.parents or rp == exclude.resolve() / "basemap.jpg"):
             continue
@@ -201,7 +203,8 @@ def detect_objects(src: Path, out: Path, photos: list[dict], origin, previous=()
 
 
 def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: float = 0.0,
-               max_px: int = 3000, log=print, detect: bool = False, detect_cfg=None) -> dict:
+               max_px: int = 3000, log=print, detect: bool = False, detect_cfg=None, map3d: dict | None = None,
+               build_map: bool = False) -> dict:
     """Read the photos, build the base map and write ``site.json``. Returns the model.
 
     Re-running on an existing project refreshes photos and base map but keeps
@@ -222,6 +225,16 @@ def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: f
     log(f"{len(metas)} photo(s): {kinds.count('nadir')} straight-down aerial, {kinds.count('oblique')} angled "
         f"aerial, {kinds.count('ground')} ground, {kinds.count('unplaced')} without GPS")
 
+    # a photogrammetry result: given outright, found beside the photos, or built now with OpenDroneMap
+    from . import terrain as T
+
+    map3d = map3d or (T.find_odm(src) if src.is_dir() else None)
+    if build_map and not map3d:
+        overhead = [m.path for m, k in zip(metas, kinds) if k in ("nadir", "oblique")]
+        if len(overhead) < 5:
+            raise SystemExit(f"A 3-D map needs overlapping drone photos, and only {len(overhead)} were found. "
+                             "Fly a grid or two laps with at least 70% overlap: 20 photos or more.")
+        map3d = T.run_odm(overhead, out / "odm", log)
     existing = M.load(out / "site.json") if (out / "site.json").exists() else None
     placed = [m for m, k in zip(metas, kinds) if k != "unplaced"]
     anchor = [m for m, k in zip(metas, kinds) if k == "nadir"] or \
@@ -231,6 +244,8 @@ def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: f
     elif anchor:
         lat0 = sum(m.lat for m in anchor) / len(anchor)
         lon0 = sum(m.lon for m in anchor) / len(anchor)
+    elif map3d:
+        lat0, lon0 = T.ortho_centre(map3d["ortho"])
     else:
         lat0 = lon0 = 0.0
 
@@ -293,7 +308,17 @@ def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: f
         bounds = [cx - hw, cy - hh, cx + hw, cy + hh]
     else:
         bounds = [-40.0, -40.0, 40.0, 40.0]
-    basemap = build_basemap(shots, bounds, out / "basemap.jpg", max_px, log)
+    terrain = None
+    if map3d:
+        basemap, terrain = T.import_terrain(out, (lat0, lon0), map3d["ortho"], map3d.get("dsm"), map3d.get("dtm"),
+                                            log=log)
+        bounds = list(basemap["bounds"])
+        n_steep = sum(sh["pitch"] <= NADIR_PITCH for sh in shots)
+        basemap.update(straight_down=n_steep, angled=len(shots) - n_steep)
+    elif existing and (existing.get("basemap") or {}).get("ortho"):  # keep an imported map when only photos are added
+        basemap, terrain, bounds = existing["basemap"], existing.get("terrain"), existing["bounds"]
+    else:
+        basemap = build_basemap(shots, bounds, out / "basemap.jpg", max_px, log)
     if existing:
         model = existing
         model["photos"], model["basemap"] = photos, basemap
@@ -303,6 +328,7 @@ def run_survey(src: Path, out: Path, name: str | None = None, ground_offset_m: f
     else:
         model = M.new_model(name or (src.name if src.is_dir() else src.parent.name) or "Site", (lat0, lon0),
                             bounds, basemap, photos)
+    model["terrain"] = terrain
     if detect:
         model["detections"] = detect_objects(src, out, photos, (lat0, lon0), (existing or {}).get("detections") or (),
                                              detect_cfg, log)

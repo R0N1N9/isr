@@ -296,8 +296,23 @@ def cmd_site(a) -> int:
                     return 2
             cfg = TriageConfig(colors=a.color, sensitivity=a.sensitivity, ai=a.ai, ai_model=a.ai_model,
                                ground_offset_m=a.ground_offset)
-        model = run_survey(src, out, name=a.name, ground_offset_m=a.ground_offset, detect=not a.no_detect,
-                           detect_cfg=cfg)
+        map3d = None
+        if a.map:
+            from .site.terrain import find_odm
+
+            map3d = find_odm(Path(a.map).expanduser())
+            if not map3d:
+                print(f"error: no OpenDroneMap result under {a.map} (looked for odm_orthophoto/odm_orthophoto.tif)",
+                      file=sys.stderr)
+                return 2
+        try:
+            model = run_survey(src, out, name=a.name, ground_offset_m=a.ground_offset, detect=not a.no_detect,
+                               detect_cfg=cfg, map3d=map3d, build_map=a.build_map)
+        except (RuntimeError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        if model.get("terrain"):
+            print(f"  3-D map imported: heights up to {model['terrain']['max_m']} m are used in the assessment.")
         if not model["photos"]:
             print("  ! no photos found; the plan can still be sketched on a blank grid")
         elif not model["basemap"]:
@@ -486,6 +501,11 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--name", help="site name for the report")
     sv.add_argument("--ground-offset", type=float, default=0.0,
                     help="height of the site above (+) or below (-) the drone's take-off point, metres")
+    sv.add_argument("--map", metavar="FOLDER",
+                    help="an OpenDroneMap / WebODM project folder: use its orthophoto as the base map and its "
+                         "elevation model for measured heights (found automatically if it is inside the photo folder)")
+    sv.add_argument("--build-map", action="store_true",
+                    help="run OpenDroneMap on the drone photos first (needs Docker; slow)")
     sv.add_argument("--no-detect", action="store_true",
                     help="do not look for people, vehicles and objects in the drone photos")
     sv.add_argument("-c", "--color", action="append", default=[], metavar="COLOUR",

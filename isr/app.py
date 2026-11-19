@@ -164,7 +164,8 @@ class Studio:
             except BaseException as e:  # SystemExit is how the pipelines report "no photos found"
                 if not isinstance(e, (Exception, SystemExit)):
                     raise
-                traceback.print_exc()
+                if not isinstance(e, (SystemExit, RuntimeError, ValueError)):
+                    traceback.print_exc()
                 shutil.rmtree(out, ignore_errors=True)
                 task.update(state="error", error=str(e) or type(e).__name__)
 
@@ -205,7 +206,8 @@ def run_survey_job(src, out, name, opts, log):
         log("Painting a made-up property and surveying it...")
         return write_report(build_demo(out, log=log), out)
     detect = opts.get("detect", True)
-    run_survey(src, out, name=name, log=log, detect=bool(detect), detect_cfg=_triage_cfg(opts) if detect else None)
+    run_survey(src, out, name=name, log=log, detect=bool(detect), detect_cfg=_triage_cfg(opts) if detect else None,
+               build_map=bool(opts.get("build_map")))
 
 
 def run_art(src, out, name, opts, log):
@@ -431,7 +433,7 @@ async function browse(path) {
 }
 $("#go").addEventListener("click", () => begin(cur, {source: here, name: $("#f-name").value,
   colors: $("#f-colors").value.split(/[,;]/).map(s => s.trim()).filter(Boolean), ai: $("#f-ai").checked,
-  detect: $("#f-detect").checked, top: +$("#f-top").value || 30,
+  detect: $("#f-detect").checked, build_map: $("#f-map").checked, top: +$("#f-top").value || 30,
   watching: $("#f-watching").value, closed_from: +$("#f-c0").value, closed_to: +$("#f-c1").value}));
 async function begin(section, opts) {
   let t; try { t = await api("/api/new", {section, ...opts}); } catch (e) { $("#new-err").textContent = e.message; if (!$("#dlg").open) toast(e.message); return; }
@@ -518,6 +520,8 @@ def home_html() -> str:
 <div class="fld" data-only="sar survey"><label for="f-colors" id="l-colors"></label>
 <input type="text" id="f-colors" placeholder="e.g. red, blue"><div class="hint">Names: red, orange, yellow, blue, purple, pink, magenta, cyan, white, green. Or a hex colour such as #1e90ff.</div></div>
 <label class="check" data-only="survey"><input type="checkbox" id="f-detect" checked><span>Look for people, vehicles and objects in the drone photos</span></label>
+<label class="check" data-only="survey"><input type="checkbox" id="f-map"><span>Build a 3-D map from these photos with OpenDroneMap
+<span class="muted">(needs Docker and many overlapping photos; can take an hour and wants 8 GB of memory or more. A folder that already holds an OpenDroneMap or WebODM result is used automatically.)</span></span></label>
 <label class="check" data-only="sar survey"><input type="checkbox" id="f-ai"><span>Also use the AI detector <span class="muted">(needs the optional AI install; slow on older computers)</span></span></label>
 <div class="fld" data-only="watch"><label for="f-watching">What is the camera pointed at? (optional)</label>
 <input type="text" id="f-watching" placeholder="e.g. Front gate, loading bay, north fence"></div>

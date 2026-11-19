@@ -405,6 +405,52 @@ tilted less than 35° below the horizon show too little ground and are used as e
 With **phone photos only** there is no aerial image, so you sketch the plan on a 10 m grid using the
 photo positions as a guide.
 
+### A 3-D map (optional)
+
+The quick base map above is a few photos flattened onto the ground. A proper **photogrammetry**
+run turns many overlapping photos into a true orthophoto and a model of the height of everything on
+the site. ISRStudio does not do that itself; it uses [OpenDroneMap](https://opendronemap.org), the
+standard free and open-source tool, in one of two ways:
+
+* **Use a result you already have.** Process the photos in WebODM (or ODM), then start the survey
+  from that project folder, or pass it with `survey new PHOTOS --map ODM_PROJECT`. A project that
+  sits inside the photo folder is found automatically.
+* **Build it from the app.** Tick *Build a 3-D map* in the New survey dialog, or use
+  `survey new PHOTOS --build-map`. This needs Docker, an internet connection the first time (the
+  OpenDroneMap image is several GB), and patience: allow tens of minutes to an hour and 8 GB of
+  memory or more. It is too much for an old laptop; run it on a bigger machine and copy the
+  project folder across.
+
+To be worth reconstructing, the photos must overlap heavily: fly a grid, or two laps at different
+heights, with 70% overlap or more, straight down and at an angle. Twenty photos is a minimum.
+
+With a 3-D map the survey changes in three ways:
+
+* **Measured heights.** Anything the reconstruction shows standing 0.6 m or more above the ground
+  blocks sight at its real height, whether or not you traced it. You still draw buildings, fences
+  and doors (the tool needs to know what things *are*), but an untraced shed, a van or an overgrown
+  corner is no longer invisible to the analysis. Each drawn item shows its measured height with a
+  **Use** button.
+* **Two assessments.** The report gives the headline figures both ways: from the plan as drawn and
+  from the measured heights. Untick *Use measured heights* under **Site** to work from the plan alone.
+* **3-D view.** The **3D** button in the editor shows the site as a model you can turn and zoom,
+  with the aerial image draped over it and cameras, access points, blind spots, guard posts, the
+  patrol route and watch positions standing on it. (It works without a reconstruction too, using
+  the heights you typed.)
+
+Limits: a reconstruction is a surface seen from above. It cannot see under a tree canopy or a
+porch, so ground beneath them counts as hidden; thin fences and railings often do not reconstruct
+at all; and whatever was parked there on the day is treated as permanent.
+
+### Watch positions
+
+The **Watch position** tool (`O`) marks a place to watch from: where your ground camera stood, a
+rooftop, a window across the road, a neighbouring car park. Give it a height (1.6 m is eye level)
+and the survey shows what can be seen from there, on the plan and in 3-D, and lists which doors and
+gates are in view. Survey photos taken on the ground are already plotted where they were taken, so
+you can put a watch position on the same spot. It does not change the findings; it answers "what
+would I see from here?".
+
 ### 2. Draw the plan
 
 `survey new` builds the base map and opens the editor in your browser (a page served from
@@ -419,6 +465,7 @@ your own machine at `127.0.0.1`; nothing is uploaded). Trace what you see:
 | Street, footpath | `S` | Where the public walks past. |
 | Door, window, gate | `A` | Every way in. Snaps to the nearest wall or fence. |
 | Camera | `C` | Existing cameras. Drag the handle to aim; set lens angle, range and height. |
+| Watch position | `O` | A place to watch from, to see what it sees. |
 
 Double-click or `Enter` finishes a shape, `Esc` cancels, `Delete` removes the selected item,
 `Ctrl+Z` undoes. Drag corners to reshape; drag the hollow dots to add a corner. Every change is saved
@@ -558,7 +605,8 @@ The tests generate synthetic DJI photos with real EXIF and XMP metadata and know
 the `.kmz` structure, Art's ranking of degraded photos, duplicate grouping, horizon detection,
 and that edits keep metadata and never touch the originals. The app tests run a job in each
 section through the ISRStudio server. The site tests build the demo property
-(`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
+(`isr/site/demo.py`, which also writes a synthetic OpenDroneMap result) and check the map-projection
+maths against known values, GeoTIFF import and measured heights, line-of-sight geometry, base-map placement to within 0.6 m (1 m from
 angled shots alone), that
 hidden doors rank highest and the recommended cameras cover them, the report, and the editor server.
 

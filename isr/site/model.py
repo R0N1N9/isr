@@ -21,6 +21,7 @@ vegetation  polygon  trees and shrubs: can be walked into, cannot be seen into
 street      line     public way: where a passer-by can stand and look in
 access      point    door, window, gate, driveway, garage (``subtype``)
 camera      point    existing or planned camera (bearing, hfov, range, height)
+vantage     point    a place to watch from (height, range): what can be seen from here?
 =========== ======== ==========================================================
 """
 
@@ -46,6 +47,7 @@ DEFAULT_SETTINGS = {
     "street_range_m": 50.0,
     "window_range_m": 30.0,
     "min_blind_m2": 6.0,  # smaller unobserved pockets are not listed
+    "use_measured": 1,  # use heights from the elevation model when the survey has one (0 = drawn heights only)
     "guards": 0,  # plan posts and patrols for up to this many officers (0 = no guard plan)
     "guard_range_m": 40.0,  # how far a standing officer usefully sees
     "patrol_speed_ms": 1.2,  # walking pace on patrol
@@ -72,9 +74,10 @@ ACCESS_TYPES = {
 DETECTION_TYPES = {"person": "Person", "vehicle": "Vehicle", "object": "Object", "other": "Other"}
 
 KIND_LABEL = {"boundary": "Boundary", "building": "Building", "barrier": "Barrier", "vegetation": "Vegetation",
-              "street": "Public way", "access": "Access point", "camera": "Camera"}
+              "street": "Public way", "access": "Access point", "camera": "Camera",
+              "vantage": "Watch position"}
 GEOMETRY = {"boundary": "polygon", "building": "polygon", "vegetation": "polygon", "barrier": "line",
-            "street": "line", "access": "point", "camera": "point"}
+            "street": "line", "access": "point", "camera": "point", "vantage": "point"}
 DEFAULT_HEIGHT = {"building": 6.0, "vegetation": 3.0}
 
 
@@ -134,6 +137,9 @@ def normalise(model: dict) -> dict:
         elif kind == "access":
             if f.get("subtype") not in ACCESS_TYPES:
                 f["subtype"] = "door"
+        elif kind == "vantage":  # somewhere to watch from: a ground camera's spot, a rooftop, a window across the road
+            f["height"] = _num(f.get("height"), s["eye_height_m"], 0.3, 150)
+            f["range"] = _num(f.get("range"), 60.0, 5, 400)
         elif kind == "camera":
             f["height"] = _num(f.get("height"), s["camera_height_m"], 0.5, 30)
             f["bearing"] = _num(f.get("bearing"), 0.0, -360, 720) % 360

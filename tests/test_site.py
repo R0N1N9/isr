@@ -350,6 +350,163 @@ def test_guard_plan_is_off_by_default_and_respects_barriers():
     json.dumps(g)
 
 
+# -- 3-D map: photogrammetry import, measured heights, watch positions ---------------
+
+
+def test_utm_against_known_values():
+    from isr.site import terrain as T
+
+    e, n, zone, north = T.latlon_to_utm(40.0, -105.0)  # on zone 13's central meridian
+    assert (zone, north) == (13, True) and e == pytest.approx(500000, abs=1e-3) and n == pytest.approx(4427757.22, abs=0.02)
+    assert T.latlon_to_utm(0.0, 3.0)[:2] == pytest.approx((500000, 0), abs=1e-6)
+    e, n, zone, north = T.latlon_to_utm(-33.9, 151.2)
+    assert zone == 56 and not north and 6_200_000 < n < 6_300_000
+    for lat, lon in ((51.752, -1.2577), (-33.9, 151.2), (64.1, -21.9), (1.3, 103.8)):
+        assert T.utm_to_latlon(*T.latlon_to_utm(lat, lon)) == pytest.approx((lat, lon), abs=1e-7)
+
+
+def test_geotiff_import_places_and_measures(tmp_path):
+    from isr.site import terrain as T
+
+    lat, lon = 51.752, -1.2577
+    E, N, Z, _ = T.latlon_to_utm(lat, lon)
+    yy, xx = np.mgrid[0:200, 0:240]
+    ground = (100 + 0.02 * xx + 0.01 * yy).astype(np.float32)  # a 4.5% slope
+    dsm = ground.copy()
+    dsm[80:120, 100:160] += 6.5  # a 30 x 20 m block, 10 m west to 20 m east of the centre
+    dsm[:4, :4] = -9999
+    T.write_geotiff(tmp_path / "dsm.tif", dsm, E - 60, N + 50, 0.5, Z, nodata=-9999)
+    T.write_geotiff(tmp_path / "dtm.tif", ground, E - 60, N + 50, 0.5, Z)
+    rgb = np.zeros((400, 480, 3), np.uint8)
+    rgb[160:240, 200:320] = (220, 30, 30)
+    T.write_geotiff(tmp_path / "ortho.tif", rgb, E - 60, N + 50, 0.25, Z)
+    for dtm, tol in ((tmp_path / "dtm.tif", 0.05), (None, 0.4)):  # with a terrain model, and with the ground estimated
+        bm, tr = T.import_terrain(tmp_path, (lat, lon), tmp_path / "ortho.tif", tmp_path / "dsm.tif", dtm, log=lambda *a: None)
+        h, ok = T.load_heights(tmp_path, tr)
+        jj, ii = np.nonzero(h > 3)
+        b, p = bm["bounds"], tr["px_per_m"]
+        assert (b[0] + ii.min() / p, b[0] + (ii.max() + 1) / p) == pytest.approx((-10, 20), abs=0.6)
+        assert (b[3] - (jj.max() + 1) / p, b[3] - jj.min() / p) == pytest.approx((-10, 10), abs=0.7)
+        assert float(np.median(h[h > 3])) == pytest.approx(6.5, abs=tol)
+        assert float((h[ok & (h < 3)] > 0.6).mean()) < 0.01  # bare sloping ground reads as ground
+    im = np.asarray(Image.open(tmp_path / bm["file"]).convert("RGB"), np.int32)
+    jj, ii = np.nonzero(im[..., 0] > 150)
+    assert (b[0] + ii.mean() / bm["px_per_m"], b[3] - jj.mean() / bm["px_per_m"]) == pytest.approx((5, 0), abs=0.5)
+    plain = tmp_path / "plain.tif"
+    Image.fromarray(rgb).save(plain)
+    with pytest.raises(ValueError, match="no position information"):
+        T.import_terrain(tmp_path, (lat, lon), plain)
+
+
+def test_survey_uses_the_photogrammetry_result(project, result):
+    """The demo ships a synthetic OpenDroneMap result: its orthophoto is the base map and its heights are used."""
+    out, model = project
+    assert model["basemap"]["ortho"] and model["terrain"]["has_dtm"] and model["terrain"]["max_m"] == pytest.approx(7, abs=0.3)
+    assert not result["stats"]["measured"] and result["stats"]["has_terrain"]  # no project folder given: plan only
+    an = analyse(json.loads(json.dumps(model)), out)
+    assert an.result["stats"]["measured"]
+    house = next(f for f in model["features"] if f["name"] == "House")
+    assert an.result["measured_heights"][house["id"]] == pytest.approx(6.3, abs=0.4)
+    drawn = analyse(json.loads(json.dumps(model)), out, use_measured=False)
+    assert not drawn.result["stats"]["measured"] and drawn.result["measured_heights"] == {}
+    assert drawn.result["stats"]["blind_pct"] == result["stats"]["blind_pct"] != an.result["stats"]["blind_pct"]
+    # nobody drew the van on the lawn, but it is in the surface model and blocks sight at its own height
+    vx, vy = -16 - demo.DRONE[0], -10.5 - demo.DRONE[1]
+    j, i = an.sc.cell_of(vx, vy)
+    assert an.sc.H[j, i] == pytest.approx(1.6, abs=0.2) and drawn.sc.H[j, i] == 0
+    # switching the setting off is the same as not having it
+    m = json.loads(json.dumps(model))
+    m["settings"]["use_measured"] = 0
+    assert not analyse(m, out).result["stats"]["measured"]
+    html = write_report(model, out).read_text()
+    assert "From measured heights" in html and "From the plan as drawn" in html
+    assert an.overlays_b64()["height"].startswith("data:image/png;base64,")
+
+
+def test_measured_structure_nobody_drew_blocks_sight(tmp_path):
+    from isr.site import terrain as T
+
+    lat, lon = 51.0, -1.0
+    E, N, Z, _ = T.latlon_to_utm(lat, lon)
+    z = np.full((240, 240), 50, np.float32)
+    z[100:104, 60:180] += 2.5  # a wall across the lot, 1 m thick, in the data but not on the plan
+    T.write_geotiff(tmp_path / "odm_dem" / "dsm.tif", z, E - 30, N + 30, 0.25, Z)
+    T.write_geotiff(tmp_path / "odm_orthophoto" / "odm_orthophoto.tif", np.full((240, 240, 3), 90, np.uint8), E - 30, N + 30, 0.25, Z)
+    found = T.find_odm(tmp_path)
+    assert set(found) == {"ortho", "dsm"}
+    m = _model([LOT, {"kind": "vantage", "name": "Lookout", "pts": [[0, -12]]},
+                {"kind": "access", "subtype": "door", "name": "Far door", "pts": [[0, 15]]}])
+    m["origin"] = {"lat": lat, "lon": lon}
+    m["basemap"], m["terrain"] = T.import_terrain(tmp_path, (lat, lon), found["ortho"], found["dsm"], log=lambda *a: None)
+    with_data, plan_only = analyse(m, tmp_path).result["vantages"][0], analyse(m, tmp_path, use_measured=False).result["vantages"][0]
+    assert plan_only["sees"] == ["Far door"] and with_data["sees"] == [] and with_data["sees_pct"] < plan_only["sees_pct"] - 20
+    # from a rooftop the same lookout sees over it
+    m["features"][1]["height"] = 12
+    assert analyse(m, tmp_path).result["vantages"][0]["sees"] == ["Far door"]
+
+
+def test_watch_position_reports_what_it_sees(project):
+    out, model = project
+    m = json.loads(json.dumps(model))
+    m["features"].append({"kind": "vantage", "name": "Back lawn", "pts": [[-9 - demo.DRONE[0] + 3, 18 - demo.DRONE[1] - 4]]})
+    an = analyse(m, out)
+    v = an.result["vantages"][0]
+    assert v["code"] == "V1" and v["inside"] and "Back door" in v["sees"] and "Front door" in v["misses"] and 10 < v["sees_pct"] < 60
+    assert an.layers["vantage"].any()
+    assert analyse(model, out).result["stats"]["blind_pct"] == an.result["stats"]["blind_pct"]  # it does not change findings
+    assert "Watch positions" in write_report(m, out, an).read_text()
+    write_report(model, out)
+
+
+def test_building_a_map_runs_opendronemap(tmp_path, monkeypatch):
+    """The container tool is faked: this checks what is asked of it and that its output is picked up."""
+    import os
+    import stat
+    import sys
+    from isr.site import terrain as T
+
+    fake = tmp_path / "bin" / "docker"
+    fake.parent.mkdir()
+    fake.write_text(f"""#!{sys.executable}
+import sys, json
+from pathlib import Path
+args = sys.argv[1:]
+work = Path(args[args.index("-v") + 1].split(":")[0])
+(work / "args.json").write_text(json.dumps(args))
+print("[INFO] pretending to reconstruct", len(list((work / "code" / "images").glob("*"))), "images")
+if "--fail" in open(work / "mode").read():
+    print("[ERROR] not enough overlap"); sys.exit(1)
+from isr.site import demo
+demo.write_map(work / "code")
+""")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).parent.parent))
+    src = tmp_path / "photos"
+    demo.write_obliques(src)
+    (src / "extra").mkdir()
+    for i in range(2):
+        (src / "extra" / f"copy{i}.JPG").write_bytes((src / "DJI_0002.JPG").read_bytes())
+    out = tmp_path / "proj"
+    (out / "odm").mkdir(parents=True)
+    (out / "odm" / "mode").write_text("ok")
+    log = []
+    m = run_survey(src, out, log=log.append, build_map=True)
+    args = json.loads((out / "odm" / "args.json").read_text())
+    assert args[0] == "run" and "opendronemap/odm" in args and {"--dsm", "--dtm"} <= set(args)
+    assert m["terrain"] and m["basemap"]["ortho"] and any("pretending" in line for line in log)
+    assert len(list((out / "odm" / "code" / "images").iterdir())) == 6
+    assert len(run_survey(src, out, log=lambda *a: None)["photos"]) == 6  # ODM's folders are not rescanned as photos
+    (out / "odm" / "mode").write_text("--fail")
+    with pytest.raises(RuntimeError, match="not enough overlap"):
+        T.run_odm(sorted(src.glob("*.JPG")), out / "odm", log=lambda *a: None)
+    monkeypatch.setenv("PATH", str(tmp_path / "nowhere"))
+    with pytest.raises(RuntimeError, match="Docker was not found"):
+        T.run_odm([], tmp_path / "x")
+    with pytest.raises(SystemExit, match="overlapping drone photos"):
+        run_survey(tmp_path / "nowhere", tmp_path / "p2", log=lambda *a: None, build_map=True)
+
+
 def test_report_and_exports(project):
     out, model = project
     report = write_report(model, out)

@@ -101,7 +101,7 @@ def project_post(h: LocalHandler, project: Path, path: str, base: str = ""):
         return h.json({"error": "not a site model"}, 400)
     with LOCK:
         M.save(model, project / "site.json")
-        an = Analysis(model)
+        an = Analysis(model, project)
         if path == "/api/analyse":
             return h.json({"result": an.result, "overlays": an.overlays_b64()})
         if path == "/api/report":

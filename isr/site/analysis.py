@@ -32,10 +32,39 @@ from . import model as M
 NEG = -1e9
 
 
+MEASURED = {"id": None, "kind": "measured", "name": "something standing there that is not drawn on the plan"}
+MIN_MEASURED_M = 0.6  # lower than this in the elevation model is kerbs, grass and noise
+_grid_cache: dict = {}
+
+
+def measured_grid(project, terrain: dict, xmin, ymax, cell, nx, ny):
+    """Measured heights (metres above ground) on the analysis grid: the tallest thing in each cell."""
+    from pathlib import Path
+    from .terrain import load_heights
+
+    p = Path(project) / terrain["file"]
+    if not p.exists():
+        return None
+    key = (str(p), p.stat().st_mtime_ns, round(xmin, 3), round(ymax, 3), round(cell, 4), nx, ny)
+    if key not in _grid_cache:
+        h, _ = load_heights(project, terrain)
+        bx0, _, _, by1 = terrain["bounds"]
+        ppm = terrain["px_per_m"]
+        jj, ii = np.nonzero(h >= MIN_MEASURED_M)
+        gi = np.floor((bx0 + (ii + 0.5) / ppm - xmin) / cell).astype(np.int64)
+        gj = np.floor((ymax - (by1 - (jj + 0.5) / ppm)) / cell).astype(np.int64)
+        ok = (gi >= 0) & (gi < nx) & (gj >= 0) & (gj < ny)
+        out = np.zeros((ny, nx), np.float32)
+        np.maximum.at(out, (gj[ok], gi[ok]), h[jj[ok], ii[ok]])
+        _grid_cache.clear()
+        _grid_cache[key] = out
+    return _grid_cache[key]
+
+
 class Scene:
     """Rasterised site."""
 
-    def __init__(self, model: dict):
+    def __init__(self, model: dict, project=None, use_measured: bool = True):
         self.model = model
         self.s = model["settings"]
         F = model["features"]
@@ -75,6 +104,9 @@ class Scene:
                 self.opaque.append((f, mk, f["height"]))
         for f in self.by_kind["vegetation"]:
             self.opaque.append((f, self._poly(f["pts"]), f["height"]))
+        t = model.get("terrain")
+        self.Hm = measured_grid(project, t, self.xmin, self.ymax, self.cell, self.nx, self.ny) \
+            if t and project and use_measured and model["settings"].get("use_measured", 1) else None
         self.H, self.fid = self.heights()
 
         if self.boundaries:
@@ -112,6 +144,14 @@ class Scene:
             upd = mk & (h > H)
             H[upd] = h
             fid[upd] = i
+        if self.Hm is not None:  # what the elevation model shows standing there, drawn or not
+            hm = self.Hm
+            if without is not None:  # asking "what if this were gone" removes its measured bulk too
+                gone = next((ndimage.binary_dilation(mk, iterations=2) for f, mk, _ in self.opaque if f is without), None)
+                hm = np.where(gone, 0, hm) if gone is not None else hm
+            upd = hm > H
+            fid[upd & (fid < 0)] = -2
+            H = np.maximum(H, hm)
         return H, fid
 
     def cell_of(self, x: float, y: float) -> tuple[int, int]:
@@ -149,7 +189,8 @@ class Scene:
         ok = (ci >= 0) & (ci < self.nx) & (rj >= 0) & (rj < self.ny)
         hs = np.zeros((na, nr), np.float32)
         hs[ok] = H[rj[ok], ci[ok]]
-        near = cell * 1.0  # ignore the observer's own cell (e.g. the wall a camera is fixed to)
+        # ignore what the observer is standing on or fixed to; measured roofs overhang the walls drawn under them
+        near = cell * 1.0 if self.Hm is None else max(cell, 1.5)
         slope = (hs - h_obs) / r
         slope[:, r < near] = NEG
         cm = np.maximum.accumulate(slope, axis=1)
@@ -191,7 +232,12 @@ class Scene:
                 continue
             j, c = self.cell_of(x, y)
             if 0 <= j < self.ny and 0 <= c < self.nx and self.H[j, c] > h0 + (h1 - h0) * t:
-                return self.opaque[self.fid[j, c]][0]
+                if self.fid[j, c] >= 0:
+                    return self.opaque[self.fid[j, c]][0]
+                # measured bulk: if it is the edge or overhang of something drawn, name that
+                near = self.fid[max(0, j - 4): j + 5, max(0, c - 4): c + 5]
+                near = near[near >= 0]
+                return self.opaque[int(np.bincount(near).argmax())][0] if near.size else MEASURED
         return None
 
     # -- placing things relative to walls -------------------------------------
@@ -282,10 +328,10 @@ COVERED = 0.35  # share of the ground at an opening that must be seen for it to 
 class Analysis:
     """Runs every check. ``result`` is plain JSON; ``layers`` holds the rasters behind the map overlays."""
 
-    def __init__(self, model: dict):
+    def __init__(self, model: dict, project=None, use_measured: bool = True):
         M.normalise(model)
         self.model = model
-        self.sc = sc = Scene(model)
+        self.sc = sc = Scene(model, project, use_measured)
         self.s = s = model["settings"]
         self.cams = sc.by_kind["camera"]
         self.access = sc.by_kind["access"]
@@ -312,7 +358,10 @@ class Analysis:
         self.urgency = {a["id"]: a["score"] for a in self._access()}  # scored before any recommendation
         self.proposals, self.prop_masks = self._recommend()
         self.cam_final = _union(self.prop_masks, self.cam_plan)
+        self.vantage_masks = {v["id"]: sc.viewshed(v["pts"][0][0], v["pts"][0][1], v["height"], v["range"], h_tgt=1.2)
+                              for v in sc.by_kind["vantage"]}
         self.layers = {
+            "vantage": _union(list(self.vantage_masks.values()), zero) & dom,
             "cameras": self.cam_plan & dom,
             "cameras_now": self.cam_now & dom,
             "natural": self.natural & dom,
@@ -346,6 +395,7 @@ class Analysis:
             "access_unwatched": sum(not a["camera_now"] for a in access),
             "has_boundary": bool(sc.boundaries), "has_street": bool(self.street_pts),
             "has_buildings": bool(sc.buildings), "cell_m": round(sc.cell, 2),
+            "measured": sc.Hm is not None, "has_terrain": bool(model.get("terrain")),
         }
         cameras = []
         for c in self.cams:
@@ -363,7 +413,26 @@ class Analysis:
             "grid": {"bounds": [sc.xmin, sc.ymin, sc.xmax, sc.ymax], "cell_m": sc.cell},
         }
         self.result["detections"] = self._detections(access)
+        vant = []
+        for v in sc.by_kind["vantage"]:
+            mk = self.vantage_masks[v["id"]] & dom
+            x, y = v["pts"][0]
+            lat, lon = sc.latlon(x, y)
+            sees = [a["name"] for a in access if _frac(mk, self._stand_disc_id(a["id"])) >= COVERED]
+            vant.append({"id": v["id"], "code": f"V{len(vant) + 1}", "name": v["name"], "x": x, "y": y, "lat": lat,
+                         "lon": lon, "height": v["height"], "range": v["range"], "inside": bool(sc.in_grid(x, y) and
+                         sc.inside[sc.cell_of(x, y)]), "sees_pct": round(100 * float(mk.sum()) * c2 / A),
+                         "sees_blind_m2": round(float((mk & self.blind).sum()) * c2),
+                         "sees": sees, "misses": [a["name"] for a in access if a["name"] not in sees],
+                         "notes": v["notes"]})
+        self.result["vantages"] = vant
         self.result["activity"] = self._activity(access)
+        self.result["measured_heights"] = {}
+        if sc.Hm is not None:  # what the elevation model says each drawn thing stands at
+            for f, mk, _ in sc.opaque:
+                v = sc.Hm[mk & (sc.Hm >= MIN_MEASURED_M)]
+                if v.size >= 3:
+                    self.result["measured_heights"][f["id"]] = round(float(np.percentile(v, 75)), 1)
         self.result["findings"] = self._findings()
         from .guards import plan as guard_plan
 
@@ -921,7 +990,8 @@ class Analysis:
 
     def overlay_png(self, name: str) -> bytes:
         rgba = {"cameras": (59, 130, 246, 88), "cameras_now": (59, 130, 246, 88), "natural": (250, 204, 21, 96), "hidden": (10, 10, 16, 165), "blind": (229, 72, 77, 120),
-                "proposed": (16, 163, 90, 92), "blind_after": (229, 72, 77, 120), "blind_plan": (229, 72, 77, 120)}[name]
+                "proposed": (16, 163, 90, 92), "blind_after": (229, 72, 77, 120), "blind_plan": (229, 72, 77, 120),
+                "vantage": (20, 184, 166, 105)}[name]
         mk = self.layers[name]
         arr = np.zeros((*mk.shape, 4), np.uint8)
         arr[mk] = rgba
@@ -929,8 +999,17 @@ class Analysis:
         Image.fromarray(arr, "RGBA").save(buf, "PNG", optimize=True)
         return buf.getvalue()
 
+    def height_png(self) -> bytes:
+        """The blocking-height grid for the 3-D view: centimetres packed into red (high byte) and green."""
+        cm = np.clip(np.round(self.sc.H * 100), 0, 65535).astype(np.uint16)
+        buf = io.BytesIO()
+        Image.fromarray(np.dstack([cm >> 8, cm & 255, np.zeros_like(cm)]).astype(np.uint8), "RGB").save(buf, "PNG")
+        return buf.getvalue()
+
     def overlays_b64(self) -> dict:
-        return {k: "data:image/png;base64," + base64.b64encode(self.overlay_png(k)).decode() for k in self.layers}
+        out = {k: "data:image/png;base64," + base64.b64encode(self.overlay_png(k)).decode() for k in self.layers}
+        out["height"] = "data:image/png;base64," + base64.b64encode(self.height_png()).decode()
+        return out
 
 
 def _union(masks, zero):
@@ -955,5 +1034,5 @@ def _sentence(parts) -> str:
     return (s[0].upper() + s[1:] + ".") if s else ""
 
 
-def analyse(model: dict) -> Analysis:
-    return Analysis(model)
+def analyse(model: dict, project=None, use_measured: bool = True) -> Analysis:
+    return Analysis(model, project, use_measured)

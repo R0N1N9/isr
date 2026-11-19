@@ -258,6 +258,54 @@ def write_photos(folder: Path) -> list[Path]:
     return out
 
 
+def write_map(folder: Path, aerial: Image.Image | None = None) -> dict:
+    """What OpenDroneMap would produce for this property: an orthophoto and surface / terrain models.
+
+    Written as real UTM GeoTIFFs in the usual project layout, so the import path is the one a real
+    project takes. The ground slopes gently, roofs are pitched and the trees are lumpy, as measured
+    surfaces are.
+    """
+    from ..geo import to_local
+    from . import terrain as T
+    from .survey import _coeffs
+
+    aerial = aerial or render_aerial()
+    e0, n0, zone, north = T.latlon_to_utm(LAT0, LON0)
+    half_w, half_h, res = 52.0, 40.0, 0.05
+    w, h = int(2 * half_w / res), int(2 * half_h / res)
+    lot = lambda i, j: to_local(LAT0, LON0, *T.utm_to_latlon(e0 - half_w + i * res, n0 + half_h - j * res, zone, north))  # noqa: E731
+    corners = [(0, 0), (w, 0), (w, h), (0, h)]
+    ortho = aerial.transform((w, h), Image.PERSPECTIVE, tuple(_coeffs(corners, [_to_px(*lot(*c)) for c in corners])),
+                             Image.BICUBIC, fillcolor=(96, 128, 66))
+    T.write_geotiff(folder / "odm_orthophoto" / "odm_orthophoto.tif", np.asarray(ortho), e0 - half_w, n0 + half_h, res,
+                    zone, north)
+    dres = 0.25
+    dw, dh = int(2 * half_w / dres), int(2 * half_h / dres)
+    jj, ii = np.mgrid[0:dh, 0:dw].astype(np.float32)
+    ground = (71.0 + 0.012 * ii * dres + 0.006 * jj * dres).astype(np.float32)
+    up = Image.new("F", (dw, dh), 0.0)
+    d = ImageDraw.Draw(up)
+    px = lambda pts: [((x + half_w) / dres, (half_h - y) / dres) for x, y in pts]  # noqa: E731
+    for kind, sub, _name, pts, extra in FEATURES:
+        hgt = extra.get("height") or {"building": 6.0, "vegetation": 3.0}.get(kind)
+        if kind in ("building", "vegetation"):
+            d.polygon(px(pts), fill=float(hgt))
+        elif kind == "barrier" and sub != "open_fence":
+            d.line(px(pts), fill=float(hgt), width=3)
+    a = np.asarray(up, np.float32).copy()
+    rng = np.random.default_rng(4)
+    trees = a >= 6.9
+    a[trees] *= 0.72 + 0.28 * np.clip(rng.normal(0.6, 0.3, a.shape), 0, 1)[trees]  # ragged canopy
+    ridge = np.abs(jj * dres - (half_h - 1.5)) / 7.5  # the house roof falls away from its ridge
+    house = (a > 6.4) & (a < 6.6)
+    a[house] = 6.5 - 1.4 * np.clip(ridge[house], 0, 1)
+    a[196:208, 140:148] = 1.6  # something on the front lawn nobody drew: a parked van at about (-16, -10.5)
+    surface = ground + a + rng.normal(0, 0.03, a.shape).astype(np.float32)
+    T.write_geotiff(folder / "odm_dem" / "dsm.tif", surface, e0 - half_w, n0 + half_h, dres, zone, north, nodata=-9999)
+    T.write_geotiff(folder / "odm_dem" / "dtm.tif", ground, e0 - half_w, n0 + half_h, dres, zone, north, nodata=-9999)
+    return T.find_odm(folder)
+
+
 def demo_features() -> list[dict]:
     """The site plan, in coordinates relative to the drone photo (which becomes the project origin)."""
     feats = []
@@ -270,9 +318,11 @@ def demo_features() -> list[dict]:
     return feats
 
 
-def build_demo(out: Path, log=print) -> dict:
+def build_demo(out: Path, log=print, with_map: bool = True) -> dict:
     out = Path(out)
     write_photos(out / "source_photos")
+    if with_map:
+        write_map(out / "source_photos")
     model = run_survey(out / "source_photos", out, name="Demo property (synthetic)", log=log, detect=True)
     model["features"] = demo_features()
     model["assessor"] = "A. Assessor"

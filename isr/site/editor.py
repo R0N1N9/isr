@@ -42,6 +42,14 @@ body{display:flex;flex-direction:column;overflow:hidden}
 #zoom{bottom:14px;right:12px;display:flex;flex-direction:column;overflow:hidden}
 #zoom button{width:34px;height:32px;border:0;background:transparent;color:var(--ink);font:600 16px var(--font);cursor:pointer}
 #zoom button:hover{background:var(--surface-2)}
+#v3d{position:absolute;inset:0;background:#0b0d11;z-index:15}
+#v3d canvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#v3d-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+#v3d-labels span{position:absolute;transform:translate(-50%,-100%);padding:1px 6px;border-radius:9px;font:700 10.5px var(--mono);color:#fff;
+  background:var(--c);border:1.5px solid #fff;white-space:nowrap}
+#v3d-labels span::after{content:"";position:absolute;left:50%;top:100%;width:1.5px;height:var(--stem,10px);background:#fff;opacity:.8}
+#v3d-bar{left:12px;top:12px;padding:8px 12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;max-width:calc(100% - 24px)}
+#v3d-bar span{color:var(--muted)}#v3d-bar label{display:flex;gap:6px;align-items:center;cursor:pointer}
 #tip{left:12px;bottom:14px;padding:8px 12px;max-width:min(520px,60%);color:var(--ink-2)}
 #tip:empty{display:none}
 .side{border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0}
@@ -121,7 +129,11 @@ BODY = """
       <g id="gBase"></g><g id="gFeat"></g><g id="gUi"></g></svg>
     <div class="float" id="layers"></div>
     <div class="float" id="zoom"><button data-z="in" title="Zoom in">+</button><button data-z="out" title="Zoom out">−</button>
-      <button data-z="fit" title="Fit the site" style="font-size:12px">Fit</button></div>
+      <button data-z="fit" title="Fit the site" style="font-size:12px">Fit</button>
+      <button data-z="3d" title="Look at the site in 3-D" style="font-size:12px;font-weight:700">3D</button></div>
+    <div id="v3d" hidden><canvas id="gl"></canvas><div id="v3d-labels"></div>
+      <div class="float" id="v3d-bar"><b>3-D view</b><span>Drag to turn · scroll to zoom · Shift-drag to move</span>
+        <label><input type="checkbox" id="v3d-ex"> Exaggerate height ×2</label><button class="btn sm" id="v3d-close">Back to the plan</button></div></div>
     <div class="float" id="tip"></div>
   </div>
   <aside class="side" id="side">
@@ -144,7 +156,7 @@ const svg = $("#map"), gBase = $("#gBase"), gFeat = $("#gFeat"), gUi = $("#gUi")
 let model = null, result = null, overlays = {}, sel = null, tool = "select", draft = null, cursor = null;
 let drag = null, flash = null, seq = 0, timer = null, spaceDown = false;
 const view = {cx: 0, cy: 0, mpp: 0.1};
-const layers = {base: true, cameras: true, natural: false, blind: true, proposed: true, photos: true, detections: true, guards: true};
+const layers = {base: true, cameras: true, natural: false, blind: true, proposed: true, photos: true, detections: true, guards: true, vantage: true};
 let gsel = null;  // which staffing option is drawn: [scenario index, option index]
 const last = {barrier: "fence", access: "door"};
 let hist = [], hi = -1;
@@ -153,7 +165,8 @@ const TOOLS = [
   ["select", "Select / move", "V", "var(--muted)"], ["boundary", "Boundary", "B", "#fff;border:1.5px dashed #888"],
   ["building", "Building", "H", "#334155"], ["barrier", "Wall, fence, hedge", "W", "#d6a56b"],
   ["vegetation", "Trees, shrubs", "G", "#16a34a"], ["street", "Street, footpath", "S", "#facc15"],
-  ["access", "Door, window, gate", "A", "#e08a00;border-radius:50%"], ["camera", "Camera", "C", "#3b82f6;border-radius:50%"]];
+  ["access", "Door, window, gate", "A", "#e08a00;border-radius:50%"], ["camera", "Camera", "C", "#3b82f6;border-radius:50%"],
+  ["vantage", "Watch position", "O", "#0d9488;border-radius:50%"]];
 const TIPS = {
   select: "Click an item to select it. Drag it, its corners, or the small hollow dots to reshape. Alt-click a corner to remove it. Drag empty space to pan, scroll to zoom.",
   boundary: "Click round the property line. Double-click or press Enter to finish.",
@@ -162,7 +175,8 @@ const TIPS = {
   vegetation: "Click round trees or shrubs that block the view. Double-click or press Enter to finish.",
   street: "Click along each street, lane or footpath where the public can walk past. Double-click or Enter to finish.",
   access: "Click each door, ground-floor window, gate or driveway. It snaps to the nearest wall or fence.",
-  camera: "Click where an existing camera is fixed, then drag its handle to aim it."};
+  camera: "Click where an existing camera is fixed, then drag its handle to aim it.",
+  vantage: "Click a spot to watch from: where your ground camera stood, a rooftop, a window across the road. Set its height, then see what it sees."};
 const GEOM = C.geometry, PRI = {high: "#e5484d", medium: "#e08a00", low: "#12a150", info: "#6b7385"};
 
 // ---------- helpers ----------
@@ -246,7 +260,7 @@ function renderBase() {
   if (bm && layers.base) { const [x0, y0, x1, y1] = bm.bounds;
     h += `<image href="${C.base}/files/${esc(bm.file)}" x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" preserveAspectRatio="none"/>`; }
   if (result) { const [x0, y0, x1, y1] = result.grid.bounds;
-    for (const [k, o] of [["natural", "natural"], ["cameras", "cameras"], ["proposed", "proposed"], ["blind", "blind_plan"]]) if (layers[k] && overlays[o])
+    for (const [k, o] of [["natural", "natural"], ["vantage", "vantage"], ["cameras", "cameras"], ["proposed", "proposed"], ["blind", "blind_plan"]]) if (layers[k] && overlays[o])
       h += `<image href="${overlays[o]}" x="${x0}" y="${-y1}" width="${x1 - x0}" height="${y1 - y0}" preserveAspectRatio="none" style="image-rendering:pixelated"/>`; }
   gBase.innerHTML = h;
 }
@@ -264,7 +278,8 @@ function render() {
   const u = view.mpp, acc = {}, cam = {};
   if (result) { for (const a of result.access) acc[a.id] = a; for (const c of result.cameras) cam[c.id] = c; }
   let h = "", top = "";
-  const order = ["street", "boundary", "vegetation", "building", "barrier", "camera", "access"];
+  const order = ["street", "boundary", "vegetation", "building", "barrier", "camera", "vantage", "access"];
+  const vcode = {}; if (result) for (const v of result.vantages || []) vcode[v.id] = v.code;
   for (const f of [...model.features].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) {
     const s = f.id === sel, d = `data-id="${f.id}"`, p = P(f.pts), hl = s ? `stroke="var(--accent)"` : "";
     if (f.kind === "boundary")
@@ -280,6 +295,8 @@ function render() {
     else if (f.kind === "camera") { const col = "#3b82f6", c = f.pts[0];
       h += `<polygon points="${P(wedge(c, f.bearing, f.hfov, f.range))}" fill="${col}" fill-opacity="${s ? .16 : .06}" stroke="${s ? "var(--accent)" : col}" stroke-width="${1.6 * u}" stroke-linejoin="round" ${f.status === "planned" ? `stroke-dasharray="${6 * u} ${4 * u}"` : ""} pointer-events="none"/>`;
       top += tag(c, cam[f.id] ? cam[f.id].code : "C", col, "pill", u, d + ` style="cursor:move"`); }
+    else if (f.kind === "vantage") { top += tag(f.pts[0], vcode[f.id] || "V", "#0d9488", "pill", u, d + ` style="cursor:move"`);
+      if (s) top += `<circle cx="${f.pts[0][0]}" cy="${-f.pts[0][1]}" r="${f.range}" fill="none" stroke="#0d9488" stroke-width="${1.5 * u}" stroke-dasharray="${6 * u} ${5 * u}" pointer-events="none"/>`; }
     else if (f.kind === "access") { const a = acc[f.id];
       top += tag(f.pts[0], a ? a.code : "A", a ? PRI[a.priority] : "#6b7385", "circle", u, d + ` style="cursor:move"`); }
     if (s && f.kind === "access") top += `<circle cx="${f.pts[0][0]}" cy="${-f.pts[0][1]}" r="${15 * u}" fill="none" stroke="var(--accent)" stroke-width="${2 * u}" pointer-events="none"/>`;
@@ -334,13 +351,14 @@ function create(kind, pts, extra = {}) {
   if (kind === "barrier") { f.subtype = last.barrier; f.height = C.barrier[f.subtype].height; }
   if (kind === "access") f.subtype = last.access;
   if (C.height[kind]) f.height = C.height[kind];
+  if (kind === "vantage") Object.assign(f, {height: model.settings.eye_height_m, range: 60});
   if (kind === "camera") Object.assign(f, {height: model.settings.camera_height_m, hfov: model.settings.camera_hfov, range: model.settings.camera_range_m, status: "existing", bearing: 0, ...extra});
   f.name = nextName(label(f)); model.features.push(f); sel = f.id; setTool("select"); commit(); showTab("props"); renderProps(); return f;
 }
 function finishDraft() { if (!draft) return; const need = GEOM[draft.kind] === "polygon" ? 3 : 2, d = draft; draft = null; cursor = null;
   if (d.pts.length >= need) create(d.kind, d.pts); else render(); }
 function placePoint(kind, w, ev) {
-  const s = ev.altKey ? null : snapPoint(w, kind), p = s ? s.q : w, extra = {};
+  const s = ev.altKey || kind === "vantage" ? null : snapPoint(w, kind), p = s ? s.q : w, extra = {};
   if (kind === "camera" && s) { let n = s.n; const L = Math.hypot(n[0], n[1]) || 1; n = [n[0] / L, n[1] / L];
     if (inPoly([p[0] + n[0] * .2, p[1] + n[1] * .2], s.f.pts)) n = [-n[0], -n[1]]; extra.bearing = Math.round(bearing(n[0], n[1])); }
   create(kind, [p], extra);
@@ -386,7 +404,7 @@ svg.addEventListener("pointermove", ev => {
   else if (drag.type === "rot") { const c = drag.f.pts[0]; drag.f.bearing = Math.round(bearing(w[0] - c[0], w[1] - c[1])); drag.moved = true; render(); }
   else if (drag.type === "move") { const dx = w[0] - drag.start[0], dy = w[1] - drag.start[1];
     if (!drag.moved && Math.hypot(dx, dy) < 4 * view.mpp) return; drag.moved = true;
-    if (GEOM[drag.f.kind] === "point") { const s = ev.altKey ? null : snapPoint(w, drag.f.kind); drag.f.pts[0] = (s ? s.q : w).map(r2); }
+    if (GEOM[drag.f.kind] === "point") { const s = ev.altKey || drag.f.kind === "vantage" ? null : snapPoint(w, drag.f.kind); drag.f.pts[0] = (s ? s.q : w).map(r2); }
     else drag.f.pts = drag.orig.map(p => [r2(p[0] + dx), r2(p[1] + dy)]);
     render(); }
 });
@@ -395,7 +413,7 @@ svg.addEventListener("pointerup", () => { const d = drag; drag = null; svg.class
   if (d.moved) { commit(); renderProps(); } });
 svg.addEventListener("dblclick", () => { if (draft) finishDraft(); });
 svg.addEventListener("wheel", ev => { ev.preventDefault(); zoomAt(Math.exp(ev.deltaY * 0.0016), toWorld(ev)); }, {passive: false});
-$("#zoom").addEventListener("click", ev => { const z = ev.target.dataset.z; if (z === "fit") fit(); else if (z) zoomAt(z === "in" ? 0.7 : 1.43); });
+$("#zoom").addEventListener("click", ev => { const z = ev.target.dataset.z; if (z === "3d") return open3d(); if (z === "fit") fit(); else if (z) zoomAt(z === "in" ? 0.7 : 1.43); });
 addEventListener("resize", render);
 addEventListener("keydown", ev => {
   if (ev.target.matches("input,textarea,select")) return;
@@ -495,6 +513,11 @@ function renderProps() {
   if (f.kind === "access") h += row("Type", `<select data-k="subtype">${opt(C.access, f.subtype, v => v)}</select>`);
   if (f.kind === "camera") h += row("Status", `<select data-k="status"><option value="existing" ${f.status === "existing" ? "selected" : ""}>Existing</option><option value="planned" ${f.status === "planned" ? "selected" : ""}>Planned</option></select>`) +
     row("Height (m)", num("height", .1, .5, 30)) + row("Aim (° from N)", num("bearing", 5, 0, 359)) + row("Lens angle (°)", num("hfov", 5, 5, 360)) + row("Range (m)", num("range", 1, 2, 150));
+  if (f.kind === "vantage") { h += row("Height (m)", num("height", .5, .3, 150)) + row("Sees out to (m)", num("range", 5, 5, 400));
+    const v = result && (result.vantages || []).find(v => v.id === f.id);
+    if (v) h += row("Sees", `<span class="ro">${v.sees_pct}% of the grounds · ${v.sees.length} of ${v.sees.length + v.misses.length} access points</span>`); }
+  const mh = result && result.measured_heights && result.measured_heights[f.id];
+  if (mh && f.height != null && Math.abs(mh - f.height) >= 0.3) h += row("Measured", `<span class="ro">${mh} m <button class="btn sm" data-usemh="${mh}" style="margin-left:8px">Use</button></span>`);
   if (GEOM[f.kind] === "line") h += row("Length", `<span class="ro">${fmt(pathLen(f.pts, false))} m</span>`);
   if (GEOM[f.kind] === "polygon") h += row("Size", `<span class="ro">${fmt(area(f.pts), 0)} m² · ${fmt(pathLen(f.pts, true), 0)} m round</span>`);
   h += `<label class="wide">Notes (shown in the report)</label><textarea data-k="notes">${esc(f.notes || "")}</textarea>
@@ -502,6 +525,7 @@ function renderProps() {
   const hints = {barrier: "A see-through fence stops people but not the view. Anything under about 1.2 m is treated as a marker only.",
     vegetation: "Planting hides whoever is inside or behind it, up to the height given.", street: "Passers-by are assumed to look in from every few metres along this line.",
     access: "Ground-floor windows also count as places an occupant can look out from.", camera: "Drag the handle on the plan to aim. Planned cameras count towards the plan but not towards current coverage.",
+    vantage: "A watch position does not change the findings: it shows what someone standing here (or a camera left here) can see. 1.6 m is eye height; use the real height for a rooftop or an upper window.",
     building: "Cameras are recommended on building corners and walls.", boundary: "Only ground inside the boundary is assessed."};
   el.innerHTML = h + `<p class="help" style="margin-top:14px">${hints[f.kind]}</p>`;
 }
@@ -512,7 +536,8 @@ $("#p-props").addEventListener("input", ev => { const f = sel && feat(sel), k = 
     if (new RegExp("^" + was + " \\d+$").test(f.name)) { f.name = ""; f.name = nextName(label(f)); } }
   render(); });
 $("#p-props").addEventListener("change", ev => { if (ev.target.dataset.k) { commit(); if (ev.target.dataset.k === "subtype") renderProps(); } });
-$("#p-props").addEventListener("click", ev => { if (ev.target.id === "del" && sel) remove(sel); });
+$("#p-props").addEventListener("click", ev => { if (ev.target.id === "del" && sel) return remove(sel);
+  if (ev.target.dataset.usemh && sel) { feat(sel).height = +ev.target.dataset.usemh; commit(); renderProps(); } });
 
 function renderSettings() {
   const s = model.settings, n = (k, lbl, step, min, max) => `<label>${lbl}</label><input type="number" data-s="${k}" value="${s[k]}" step="${step}" min="${min}" max="${max}">`;
@@ -524,6 +549,9 @@ function renderSettings() {
     <label>Assessor</label><input data-m="assessor" placeholder="Your name" value="${esc(model.assessor || "")}">
     <label>Reference</label><input data-m="reference" placeholder="Job or report number" value="${esc(model.reference || "")}">
     <label class="wide">Notes (shown in the report)</label><textarea data-m="notes">${esc(model.notes || "")}</textarea></div>
+    ${model.terrain ? `<div class="sec"><span class="label">3-D reconstruction</span></div>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px"><input type="checkbox" id="use-mh" ${s.use_measured ? "checked" : ""} style="margin-top:3px">
+    <span>Use measured heights (tallest ${model.terrain.max_m} m). Anything the reconstruction shows standing on the site blocks sight, drawn or not. Untick to assess the traced plan alone.</span></label>` : ""}
     <div class="sec"><span class="label">Stakeouts</span></div><div id="stk"></div>
     <div class="sec"><span class="label">Guards</span></div><div class="form">
     ${n("guards", "Plan for up to", 1, 0, 6)}${n("guard_range_m", "Sight range (m)", 5, 5, 150)}</div>
@@ -534,6 +562,7 @@ function renderSettings() {
     <div class="sec"><span class="label">Survey</span></div>
     <p class="help">${model.photos.length} photos: ${c.nadir || 0} straight-down aerial, ${c.oblique || 0} angled aerial, ${c.ground || 0} ground, ${c.unplaced || 0} without GPS.<br>
     ${!model.basemap ? "No drone photos looking down at the ground, so there is no base map: sketch the plan on the grid (10 m squares) using the photo positions as a guide."
+      : model.basemap.ortho ? "Base map is the orthophoto from a 3-D reconstruction" + (model.terrain ? ", with measured heights." : ".")
       : model.basemap.straight_down ? "Base map made from the straight-down drone photo" + (model.basemap.straight_down > 1 ? "s" : "") + "; expect it to be a few metres out in absolute position."
       : "Base map made from angled drone shots only. Ground-level detail is in the right place, but roofs and treetops lean away from the drone by roughly their own height, so trace each building where its walls meet the ground. One photo taken straight down from above the site avoids this."}</p>`;
   renderStakeouts();
@@ -565,6 +594,7 @@ $("#p-settings").addEventListener("click", async ev => {
     (model.stakeouts = model.stakeouts || []).push({id: job, name: d.name, access, data}); toast("Stakeout attached"); schedule(30); renderStakeouts();
   } catch (e) { toast("Could not read that stakeout"); } });
 $("#p-settings").addEventListener("change", ev => { const t = ev.target;
+  if (t.id === "use-mh") { model.settings.use_measured = t.checked ? 1 : 0; return schedule(30); }
   if (t.dataset.m) model[t.dataset.m] = t.value; else if (t.dataset.s) { const v = parseFloat(t.value); if (isFinite(v)) model.settings[t.dataset.s] = v; } else return; schedule(50); });
 $("#name").addEventListener("change", ev => { model.name = ev.target.value.trim() || "Site"; document.title = model.name + " · " + C.app; schedule(50); });
 
@@ -579,12 +609,115 @@ $("#report").onclick = async ev => { const b = ev.currentTarget; b.disabled = tr
   try { clearTimeout(timer); const j = await post(C.base + "/api/report"); setStatus("Saved"); if (win) win.location = j.url; else location.href = j.url; }
   catch (e) { if (win) win.close(); setStatus("Report failed: " + e.message, true); } b.disabled = false; };
 
+// ---------- 3-D view ----------
+// The analysis grid of blocking heights (drawn features plus any measured surface) as a terrain mesh,
+// draped with the base map and the coverage overlays, with markers standing on it.
+const V3 = {az: -0.6, el: 0.75, dist: 120, tx: 0, tz: 0, ex: 1, gl: null, ready: false};
+const loadImg = src => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+function mat4mul(a, b) { const o = new Float32Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; }
+function v3mvp(w, h) {
+  const f = 1 / Math.tan(0.4), n = 1, fa = 5000, P = new Float32Array([f / (w / h), 0, 0, 0, 0, f, 0, 0, 0, 0, (fa + n) / (n - fa), -1, 0, 0, 2 * fa * n / (n - fa), 0]);
+  const ce = Math.cos(V3.el), ex = V3.tx + V3.dist * ce * Math.sin(V3.az), ey = V3.dist * Math.sin(V3.el), ez = V3.tz + V3.dist * ce * Math.cos(V3.az);
+  let zx = ex - V3.tx, zy = ey, zz = ez - V3.tz; const zl = Math.hypot(zx, zy, zz); zx /= zl; zy /= zl; zz /= zl;
+  let xx = zz, xz = -zx; const xl = Math.hypot(xx, xz) || 1; xx /= xl; xz /= xl;           // right = up x z, up = (0,1,0)
+  const yx = zy * xz, yy = zz * xx - zx * xz, yz = -zy * xx;
+  const Vw = new Float32Array([xx, yx, zx, 0, 0, yy, zy, 0, xz, yz, zz, 0, -(xx * ex + xz * ez), -(yx * ex + yy * ey + yz * ez), -(zx * ex + zy * ey + zz * ez), 1]);
+  return mat4mul(P, Vw);
+}
+async function open3d() {
+  if (!result || !overlays.height) return toast("Nothing to show yet");
+  $("#v3d").hidden = false;
+  const cv = $("#gl"), gl = V3.gl || (V3.gl = cv.getContext("webgl2", {antialias: true}));
+  if (!gl) { $("#v3d").hidden = true; return toast("This browser cannot show 3-D (no WebGL2)"); }
+  const [x0, y0, x1, y1] = result.grid.bounds, hi = await loadImg(overlays.height);
+  const c = document.createElement("canvas"); c.width = hi.width; c.height = hi.height; const cx = c.getContext("2d"); cx.drawImage(hi, 0, 0);
+  const px = cx.getImageData(0, 0, hi.width, hi.height).data, nx = hi.width, ny = hi.height, st = Math.max(1, Math.ceil(Math.max(nx, ny) / 420));
+  const gx = Math.floor((nx - 1) / st) + 1, gy = Math.floor((ny - 1) / st) + 1, cell = (x1 - x0) / nx;
+  const H = (i, j) => { let m = 0; for (let b = 0; b < st && j + b < ny; b++) for (let a = 0; a < st && i + a < nx; a++) { const k = ((j + b) * nx + i + a) * 4; m = Math.max(m, (px[k] * 256 + px[k + 1]) / 100); } return m; };
+  V3.h = (x, y) => { const i = Math.floor((x - x0) / cell), j = Math.floor((y1 - y) / cell); if (i < 0 || j < 0 || i >= nx || j >= ny) return 0; const k = (j * nx + i) * 4; return (px[k] * 256 + px[k + 1]) / 100; };
+  const pos = new Float32Array(gx * gy * 5), idx = new Uint32Array((gx - 1) * (gy - 1) * 6);
+  for (let j = 0; j < gy; j++) for (let i = 0; i < gx; i++) { const o = (j * gx + i) * 5, wx = x0 + (i * st + st / 2) * cell, wy = y1 - (j * st + st / 2) * cell;
+    pos[o] = wx; pos[o + 1] = H(i * st, j * st); pos[o + 2] = -wy; pos[o + 3] = (wx - x0) / (x1 - x0); pos[o + 4] = (y1 - wy) / (y1 - y0); }
+  let q = 0; for (let j = 0; j < gy - 1; j++) for (let i = 0; i < gx - 1; i++) { const a = j * gx + i; idx.set([a, a + gx, a + 1, a + 1, a + gx, a + gx + 1], q); q += 6; }
+  // texture: base map, then the plan, then the coverage overlays that are switched on
+  const T = document.createElement("canvas"), sc = Math.min(2048 / (x1 - x0), 2048 / (y1 - y0), 24); T.width = Math.round((x1 - x0) * sc); T.height = Math.round((y1 - y0) * sc);
+  const t = T.getContext("2d"); t.fillStyle = "#3f4a3c"; t.fillRect(0, 0, T.width, T.height);
+  const X = x => (x - x0) * sc, Y = y => (y1 - y) * sc;
+  if (model.basemap && layers.base) { try { const b = model.basemap.bounds, im = await loadImg(C.base + "/files/" + model.basemap.file); t.drawImage(im, X(b[0]), Y(b[3]), (b[2] - b[0]) * sc, (b[3] - b[1]) * sc); } catch (e) {} }
+  const path = (pts, close) => { t.beginPath(); pts.forEach((p, i) => i ? t.lineTo(X(p[0]), Y(p[1])) : t.moveTo(X(p[0]), Y(p[1]))); if (close) t.closePath(); };
+  for (const f of model.features) { if (GEOM[f.kind] === "point") continue;
+    if (f.kind === "building") { path(f.pts, 1); if (!model.basemap || !layers.base) { t.fillStyle = "#8b8f98"; t.fill(); } t.strokeStyle = "#fff"; t.lineWidth = 0.25 * sc; t.stroke(); }
+    else if (f.kind === "vegetation" && (!model.basemap || !layers.base)) { path(f.pts, 1); t.fillStyle = "#2f6b34"; t.fill(); }
+    else if (f.kind === "boundary") { path(f.pts, 1); t.strokeStyle = "#fff"; t.setLineDash([sc, sc * .7]); t.lineWidth = 0.3 * sc; t.stroke(); t.setLineDash([]); }
+    else if (f.kind === "barrier" || f.kind === "street") { path(f.pts); t.strokeStyle = f.kind === "street" ? "#facc15" : {wall: "#e5e7eb", fence: "#d6a56b", open_fence: "#d6a56b", hedge: "#4ade80"}[f.subtype]; t.lineWidth = 0.4 * sc; t.stroke(); } }
+  for (const [k, o] of [["natural", "natural"], ["vantage", "vantage"], ["cameras", "cameras"], ["proposed", "proposed"], ["blind", "blind_plan"]])
+    if (layers[k] && overlays[o]) { t.imageSmoothingEnabled = false; t.drawImage(await loadImg(overlays[o]), 0, 0, T.width, T.height); }
+  const go = guardOption(), line = [];
+  if (go && layers.guards && go.route) for (const p of go.route.line.concat(go.route.line.slice(0, 1))) line.push(p[0], V3.h(p[0], p[1]) + 0.5, -p[1]);
+  // gl objects (rebuilt each time the view is opened: the plan may have changed)
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); return p; };
+  V3.p1 = prog(`#version 300 es
+    in vec3 p; in vec2 uv; uniform mat4 m; uniform float ex; out vec2 v; out vec3 w; void main(){ w = vec3(p.x, p.y * ex, p.z); v = uv; gl_Position = m * vec4(w, 1.); }`, `#version 300 es
+    precision highp float; in vec2 v; in vec3 w; uniform sampler2D t; out vec4 o;
+    void main(){ vec3 n = normalize(cross(dFdx(w), dFdy(w))); if (n.y < 0.) n = -n; float l = .5 + .5 * max(dot(n, normalize(vec3(.45, .8, .35))), 0.) + .12 * n.y; o = vec4(texture(t, v).rgb * l, 1.); }`);
+  V3.p2 = prog(`#version 300 es
+    in vec3 p; uniform mat4 m; uniform float ex; void main(){ gl_Position = m * vec4(p.x, p.y * ex, p.z, 1.); }`, `#version 300 es
+    precision highp float; out vec4 o; void main(){ o = vec4(.22, .74, .97, 1.); }`);
+  V3.vao = gl.createVertexArray(); gl.bindVertexArray(V3.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
+  const ap = gl.getAttribLocation(V3.p1, "p"), au = gl.getAttribLocation(V3.p1, "uv");
+  gl.enableVertexAttribArray(ap); gl.vertexAttribPointer(ap, 3, gl.FLOAT, false, 20, 0); gl.enableVertexAttribArray(au); gl.vertexAttribPointer(au, 2, gl.FLOAT, false, 20, 12);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW); V3.n = idx.length;
+  V3.lvao = gl.createVertexArray(); gl.bindVertexArray(V3.lvao); gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(line), gl.STATIC_DRAW);
+  const lp = gl.getAttribLocation(V3.p2, "p"); gl.enableVertexAttribArray(lp); gl.vertexAttribPointer(lp, 3, gl.FLOAT, false, 0, 0); V3.ln = line.length / 3;
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture()); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, T);
+  gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  // markers standing on the surface
+  const M = [], add = (x, y, up, text, col) => M.push({x, y, h: V3.h(x, y) + up, up, text, col});
+  for (const a of result.access) add(a.x, a.y, 0, a.code, PRI[a.priority]);
+  for (const cam of result.cameras) add(cam.x, cam.y, 0, cam.code, "#3b82f6");
+  if (layers.proposed) for (const r of result.recommended) add(r.x, r.y, 0, r.id, "#10a35a");
+  if (go && layers.guards) for (const p of result.guards.posts) if (go.statics.includes(p.id)) add(p.x, p.y, 1.8, p.id, "#0284c7");
+  for (const v of result.vantages || []) add(v.x, v.y, v.height, v.code, "#0d9488");
+  if (layers.blind) for (const b of result.blind_spots) if (b.covered_by_planned < .5) add(b.x, b.y, 0, b.id, "#e5484d");
+  V3.marks = M;
+  if (!V3.ready) { V3.tx = (x0 + x1) / 2; V3.tz = -(y0 + y1) / 2; V3.dist = Math.max(x1 - x0, y1 - y0) * 0.95; V3.ready = true; }
+  draw3d();
+}
+function draw3d() {
+  const gl = V3.gl, cv = $("#gl"); if (!gl || $("#v3d").hidden) return;
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1); cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  gl.viewport(0, 0, cv.width, cv.height); gl.clearColor(.043, .051, .067, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+  const m = v3mvp(r.width, r.height);
+  gl.useProgram(V3.p1); gl.uniformMatrix4fv(gl.getUniformLocation(V3.p1, "m"), false, m); gl.uniform1f(gl.getUniformLocation(V3.p1, "ex"), V3.ex);
+  gl.bindVertexArray(V3.vao); gl.drawElements(gl.TRIANGLES, V3.n, gl.UNSIGNED_INT, 0);
+  if (V3.ln) { gl.useProgram(V3.p2); gl.uniformMatrix4fv(gl.getUniformLocation(V3.p2, "m"), false, m); gl.uniform1f(gl.getUniformLocation(V3.p2, "ex"), V3.ex); gl.bindVertexArray(V3.lvao); gl.drawArrays(gl.LINE_STRIP, 0, V3.ln); }
+  let h = "";
+  for (const k of V3.marks) { const x = k.x, y = (k.h + 2.2) * V3.ex, z = -k.y, w = m[3] * x + m[7] * y + m[11] * z + m[15]; if (w <= 0) continue;
+    const sx = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w, sy = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
+    const gy = (m[1] * x + m[5] * (k.h - k.up) * V3.ex + m[9] * z + m[13]) / w;                       // where it meets the ground
+    if (Math.abs(sx) > 1.05 || Math.abs(sy) > 1.05) continue;
+    h += `<span style="left:${(sx + 1) / 2 * r.width}px;top:${(1 - sy) / 2 * r.height}px;--c:${k.col};--stem:${Math.max(4, (sy - gy) / 2 * r.height)}px">${esc(k.text)}</span>`; }
+  $("#v3d-labels").innerHTML = h;
+}
+(() => { const cv = $("#gl"); let d = null;
+  cv.addEventListener("pointerdown", ev => { cv.setPointerCapture(ev.pointerId); d = {x: ev.clientX, y: ev.clientY, pan: ev.shiftKey || ev.button === 2}; });
+  cv.addEventListener("pointermove", ev => { if (!d) return; const dx = ev.clientX - d.x, dy = ev.clientY - d.y; d.x = ev.clientX; d.y = ev.clientY;
+    if (d.pan) { const k = V3.dist / 700; V3.tx -= (Math.cos(V3.az) * dx + Math.sin(V3.az) * dy) * k; V3.tz -= (-Math.sin(V3.az) * dx + Math.cos(V3.az) * dy) * k; }
+    else { V3.az -= dx * 0.006; V3.el = Math.min(1.5, Math.max(0.08, V3.el + dy * 0.005)); } draw3d(); });
+  cv.addEventListener("pointerup", () => d = null); cv.addEventListener("contextmenu", ev => ev.preventDefault());
+  cv.addEventListener("wheel", ev => { ev.preventDefault(); V3.dist = Math.min(3000, Math.max(8, V3.dist * Math.exp(ev.deltaY * 0.0012))); draw3d(); }, {passive: false});
+  $("#v3d-close").onclick = () => { $("#v3d").hidden = true; }; $("#v3d-ex").onchange = ev => { V3.ex = ev.target.checked ? 2 : 1; draw3d(); };
+  addEventListener("resize", draw3d); })();
+
 // ---------- start ----------
 $("#tools").innerHTML = `<div class="label">Draw</div>` + TOOLS.map(t => `<button class="tool" data-t="${t[0]}" aria-pressed="false"><i style="background:${t[3]}"></i><span>${t[1]}</span><kbd>${t[2]}</kbd></button>`).join("") +
   `<div class="hint">Trace what you see in the aerial image. Heights and types are set under <b>Selected</b>.</div>`;
 $("#tools").addEventListener("click", ev => { const b = ev.target.closest(".tool"); if (b) setTool(b.dataset.t); });
 const LAYERS = [["base", "Base map", "#888"], ["cameras", "Camera coverage (existing + planned)", "rgba(59,130,246,.7)"], ["natural", "Seen from street / windows", "rgba(234,179,8,.7)"],
-  ["blind", "Seen by nobody", "rgba(229,72,77,.75)"], ["proposed", "Recommended cameras", "rgba(16,163,90,.75)"], ["photos", "Survey photos", "#fff"], ["detections", "Detected in photos", "#d946ef"], ["guards", "Guard plan", "#38bdf8"]];
+  ["blind", "Seen by nobody", "rgba(229,72,77,.75)"], ["proposed", "Recommended cameras", "rgba(16,163,90,.75)"], ["photos", "Survey photos", "#fff"], ["detections", "Detected in photos", "#d946ef"], ["guards", "Guard plan", "#38bdf8"], ["vantage", "Seen from watch positions", "rgba(20,184,166,.8)"]];
 $("#layers").innerHTML = LAYERS.map(l => `<label><input type="checkbox" data-l="${l[0]}" ${layers[l[0]] ? "checked" : ""}><i style="background:${l[2]}"></i>${l[1]}</label>`).join("");
 $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev.target.checked; renderBase(); render(); });
 (async () => {

@@ -162,6 +162,8 @@ class MapSVG:
             for p in (self.r.get("guards") or {}).get("posts", []):
                 if p["id"] in guards["statics"]:
                     o.append(self._label(p["x"], p["y"], p["id"], "#0284c7", shape="cam"))
+        for v in self.r.get("vantages", ()):
+            o.append(self._label(v["x"], v["y"], v["code"], "#0d9488", shape="cam"))
         for g in gaps:  # openings in the perimeter: red where unmarked, amber where a gate or driveway is marked
             col = "#e08a00" if g["declared"] else "#e5484d"
             o.append(f'<polyline points="{self._pts(g["line"])}" fill="none" stroke="#fff" stroke-width="{u * 1.5:.2f}" '
@@ -322,7 +324,7 @@ def summary_text(r: dict) -> str:
     return " ".join(parts)
 
 
-def build_html(model: dict, an: Analysis) -> str:
+def build_html(model: dict, an: Analysis, compare: dict | None = None) -> str:
     r, st = an.result, an.result["stats"]
     photos = {p["id"]: p for p in model["photos"]}
     mp = MapSVG(model, an)
@@ -368,6 +370,19 @@ def build_html(model: dict, an: Analysis) -> str:
              stat(f'{st["cameras_existing"]}<small> + {st["cameras_planned"] + st["cameras_recommended"]} proposed</small>',
                   "Cameras") +
              stat(f'{len(model["photos"])}', "Survey photos") + "</div>")
+
+    if st.get("measured") and drawn and compare:
+        c = compare["stats"]
+        row = lambda k, label, unit="%": (f'<tr><td>{label}</td><td class="num">{c[k]:.0f}{unit}</td>'  # noqa: E731
+                                          f'<td class="num"><b>{st[k]:.0f}{unit}</b></td></tr>')
+        b.append('<div class="tablewrap" style="max-width:720px"><table><tr><th>Two ways of looking at the site</th>'
+                 '<th class="num">From the plan as drawn</th><th class="num">From measured heights</th></tr>' +
+                 row("blind_pct", "Grounds nobody can see") + row("street_pct", "Visible from the street") +
+                 row("camera_pct_now", "Camera coverage now") + row("camera_pct_recommended", "Camera coverage, recommended") +
+                 row("access_high", "High-priority access points", "") + "</table></div>"
+                 '<p class="sub" style="max-width:80ch">This survey has a 3-D reconstruction of the site, so the figures in '
+                 'this report use the measured height of everything standing on it, including things that were not '
+                 'traced. The first column is what the traced plan alone would have said.</p>')
 
     # 1 findings
     b.append(H("Priority findings"))
@@ -417,6 +432,21 @@ def build_html(model: dict, an: Analysis) -> str:
         b.append('</table></div><p class="sub">Each row is a what-if: the extra ground a passer-by would see if that one '
                  'feature were removed or cut below eye level. Screening also gives privacy, so this is a trade-off '
                  'to decide, not a defect.</p>')
+
+    if r.get("vantages"):
+        b.append('<h3>Watch positions</h3><p class="lead">Places marked on the plan to watch from, such as where a ground '
+                 'camera stood, a rooftop, or a window across the road, and what can be seen from each.</p>'
+                 f'<div class="mapcard">{mp.render(layers=("vantage",), blind=False, cameras="none")}<div class="legend">' +
+                 _sw("rgba(20,184,166,.6)", "Seen from a watch position") + "</div></div>"
+                 '<div class="tablewrap"><table><tr><th></th><th>Position</th><th class="num">Height</th>'
+                 '<th class="num">Sees of the grounds</th><th class="num">Sees of the blind ground</th><th>Access points in view</th>'
+                 '<th>Not in view</th><th>Location</th></tr>')
+        for v in r["vantages"]:
+            b.append(f'<tr><td>{_code(v["code"], "#0d9488")}</td><td>{h(v["name"])}{"" if v["inside"] else " (outside the boundary)"}</td>'
+                     f'<td class="num">{v["height"]:.1f} m</td><td class="num">{v["sees_pct"]}%</td><td class="num">{v["sees_blind_m2"]} m²</td>'
+                     f'<td>{h(", ".join(v["sees"])) or "–"}</td><td>{h(", ".join(v["misses"])) or "–"}</td>'
+                     f'<td class="mono">{v["lat"]:.6f}, {v["lon"]:.6f}</td></tr>')
+        b.append("</table></div>")
 
     # 4 blind spots
     b.append(H("Blind spots"))
@@ -628,6 +658,8 @@ def build_html(model: dict, an: Analysis) -> str:
     b.append(H("Survey record"))
     bm = model.get("basemap")
     base = ("no base map (no drone photo looks down at the ground)" if not bm else
+            "base map is an orthophoto from a 3-D reconstruction" + (", with measured heights" if model.get("terrain") else "")
+            if bm.get("ortho") else
             f"base map from {bm.get('straight_down', 0)} straight-down photo(s)" if bm.get("straight_down") else
             f"base map from {bm.get('angled', 0)} angled drone shots, so roofs and treetops are drawn displaced "
             f"from their true position by roughly their height")
@@ -650,6 +682,9 @@ def build_html(model: dict, an: Analysis) -> str:
 <li><b>What is measured.</b> The plan is rasterised to a {st["cell_m"]:.2f} m grid. A spot counts as seen when a straight
 line from the observer (camera at its mounting height, passer-by or occupant at {model["settings"]["eye_height_m"]:.1f} m)
 to a person standing there clears every wall, fence, hedge, building and planting at the heights entered.</li>
+<li><b>Measured heights.</b> Where the survey has a 3-D reconstruction, anything it shows standing 0.6 m or more above
+the ground blocks sight at its measured height, drawn or not. A reconstruction is a surface: it cannot see under a tree
+canopy or a porch, so ground beneath them is treated as hidden, and parked vehicles are treated as permanent.</li>
 <li><b>It is only as good as the plan.</b> Features are traced by hand over imagery placed by consumer GPS, so positions
 are good to a few metres and heights are estimates. The ground is treated as flat. Check anything decisive on site.</li>
 <li><b>Camera figures are geometric.</b> Coverage means an unobstructed view within the stated range and angle. It does
@@ -781,13 +816,14 @@ def write_csv(r: dict, path: Path) -> None:
 def write_report(model: dict, out: Path, an: Analysis | None = None) -> Path:
     """Analyse (unless given), then write report.html, overlays and exports into the project folder."""
     out = Path(out)
-    an = an or Analysis(model)
+    an = an or Analysis(model, out)
     assets = out / "report_assets"
     assets.mkdir(parents=True, exist_ok=True)
     for name in an.layers:
         (assets / f"{name}.png").write_bytes(an.overlay_png(name))
     report = out / "report.html"
-    report.write_text(build_html(model, an), encoding="utf-8")
+    compare = Analysis(json.loads(json.dumps(model)), out, use_measured=False).result if an.sc.Hm is not None else None
+    report.write_text(build_html(model, an, compare), encoding="utf-8")
     (out / "assessment.json").write_text(json.dumps(an.result, indent=1))
     write_geojson(model, an.result, out / "site.geojson")
     write_kml(model, an.result, out / "site.kml")
