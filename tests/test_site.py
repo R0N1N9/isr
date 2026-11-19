@@ -293,13 +293,71 @@ def test_object_against_a_fence_is_flagged_when_confirmed():
     assert f["severity"] == "medium" and "climb" in f["action"]
 
 
+def test_guard_plan_for_each_headcount(project, result):
+    out, model = project
+    g = result["guards"]
+    assert [sc["guards"] for sc in g["scenarios"]] == [1, 2, 3] and not g["unreachable"]
+    posts = {p["id"]: p for p in g["posts"]}
+    # the best post overlooks the front: it sees the driveway and front door but not the hidden doors
+    p1 = posts["P1"]
+    assert {"Driveway", "Front door"} <= set(p1["sees"]) and {"Side door", "Back door"} <= set(p1["misses"])
+    assert p1["pros"] and p1["cons"] and p1["suggestion"] and p1["sees_pct"] >= 40
+    assert {"Side door", "Back door"} <= set(posts["P2"]["sees"])  # the second post covers what the first cannot
+    one, two, three = (sc["options"] for sc in g["scenarios"])
+    # one officer: walk, visiting every door, with a static post offered as the alternative
+    assert one[0]["recommended"] and one[0]["rovers"] == 1 and not one[0]["statics"]
+    names = [st["name"] for st in one[0]["route"]["stops"]]
+    assert {"Side door", "Back door", "Front door", "Driveway"} <= set(names) and len(names) == len(set(names))
+    assert one[1]["statics"] == ["P1"] and one[1]["route"] is None and not one[1]["recommended"]
+    # two: hold the front, patrol the back; the route only needs to visit what the post cannot see
+    assert two[0]["statics"] == ["P1"] and two[0]["rovers"] == 1
+    assert two[0]["route"]["length_m"] < one[0]["route"]["length_m"]
+    assert "Driveway" not in [st["name"] for st in two[0]["route"]["stops"]]
+    assert two[1]["rovers"] == 2 and two[1]["route"]["revisit_min"] == pytest.approx(one[0]["route"]["revisit_min"] / 2, abs=0.1)
+    # three: a second post earns its keep, and more of the grounds is watched all the time
+    assert three[0]["statics"] == ["P1", "P2"] and three[0]["guard_pct"] > two[0]["guard_pct"] + 15
+    for n, opts in ((1, one), (2, two), (3, three)):
+        for o in opts:
+            assert o["pros"] and o["cons"] and len(o["statics"]) + o["rovers"] == n
+    # the loop is walkable: it never cuts through a building
+    an = analyse(json.loads(json.dumps(model)))
+    for x, y in one[0]["route"]["line"]:
+        j, i = an.sc.cell_of(x, y)
+        assert not an.sc.building_mask[j, i]
+    assert one[0]["route"]["lap_min"] == pytest.approx(
+        one[0]["route"]["length_m"] / 1.2 / 60 + 20 * len(names) / 60, abs=0.1)
+
+
+def test_guard_plan_is_off_by_default_and_respects_barriers():
+    house = {"kind": "building", "pts": _box(-6, -4, 6, 4)}
+    wall = {"kind": "barrier", "subtype": "wall", "pts": [[-20, 8], [20, 8]]}  # cuts the lot in two, no gate
+    doors = [{"kind": "access", "subtype": "door", "name": "Front", "pts": [[0, -4]]},
+             {"kind": "access", "subtype": "door", "name": "Back", "pts": [[0, 4]]},
+             {"kind": "access", "subtype": "door", "name": "Far side", "pts": [[0, 14]]}]
+    m = _model([LOT, house, wall, *doors])
+    assert analyse(m).result["guards"] is None
+    m["settings"]["guards"] = 2
+    g = analyse(m).result["guards"]
+    # no way through the wall: what lies beyond it is left off the route and reported
+    assert "Far side" in g["unreachable"] and not {"Front", "Back"} & set(g["unreachable"])
+    stops = [s["name"] for s in g["scenarios"][0]["options"][0]["route"]["stops"]]
+    assert {"Front", "Back"} <= set(stops) and "Far side" not in stops
+    # put a gate in the wall and the patrol goes through it
+    m["features"].append({"kind": "access", "subtype": "gate", "name": "Wall gate", "pts": [[10, 8]]})
+    g = analyse(m).result["guards"]
+    assert not g["unreachable"]
+    assert "Far side" in [s["name"] for s in g["scenarios"][0]["options"][0]["route"]["stops"]]
+    json.dumps(g)
+
+
 def test_report_and_exports(project):
     out, model = project
     report = write_report(model, out)
     html = report.read_text()
     assert "<script src" not in html and "http://" not in html.replace("http://www.w3.org", "")
     for needle in ("Priority findings", "Side door", "Camera placement", "basemap.jpg", "report_assets/blind.png",
-                   "Prepared for", "Example client", "DEMO-001", "Ronin Sec", "Open and unmarked", ">G1<"):
+                   "Prepared for", "Example client", "DEMO-001", "Ronin Sec",
+                   "Guard posts and patrols", "With 3 guards", "Recommended", "Alternative", "Open and unmarked", ">G1<"):
         assert needle in html
     gj = json.loads((out / "site.geojson").read_text())
     kinds = {f["properties"]["kind"] for f in gj["features"]}

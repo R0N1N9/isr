@@ -70,6 +70,12 @@ body{display:flex;flex-direction:column;overflow:hidden}
 .det .d{color:var(--muted);font-size:12px;margin:3px 0 6px}
 .det .row{display:flex;gap:6px;margin-top:5px}
 .det select,.det input{height:28px;min-width:0;flex:1;padding:0 7px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font:500 12px var(--font)}
+.gopt{padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;cursor:pointer;background:var(--surface)}
+.gopt:hover{border-color:var(--line-2)}.gopt.on{border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,.2)}
+.gopt .t{font-weight:600;font-size:13px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}.gopt .t .tag{margin-left:auto}
+.gopt .d{color:var(--muted);font-size:12px;margin-top:3px}.gopt .a{font-size:12px;color:var(--ink-2);margin-top:4px}
+ul.pc{list-style:none;padding:0;margin:8px 0 4px}ul.pc li{padding-left:16px;position:relative;margin:3px 0;font-size:12.5px}
+ul.pc li::before{position:absolute;left:0;font-weight:700}ul.pc li.pro::before{content:"+";color:var(--good)}ul.pc li.con::before{content:"\2212";color:var(--bad)}
 .badge{display:inline-grid;place-items:center;min-width:26px;height:19px;padding:0 5px;border-radius:6px;font:700 10.5px var(--mono);
   color:#fff;background:var(--c,var(--muted));align-self:start;margin-top:1px}
 .steps{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:14px;background:var(--surface-2)}
@@ -138,7 +144,8 @@ const svg = $("#map"), gBase = $("#gBase"), gFeat = $("#gFeat"), gUi = $("#gUi")
 let model = null, result = null, overlays = {}, sel = null, tool = "select", draft = null, cursor = null;
 let drag = null, flash = null, seq = 0, timer = null, spaceDown = false;
 const view = {cx: 0, cy: 0, mpp: 0.1};
-const layers = {base: true, cameras: true, natural: false, blind: true, proposed: true, photos: true, detections: true};
+const layers = {base: true, cameras: true, natural: false, blind: true, proposed: true, photos: true, detections: true, guards: true};
+let gsel = null;  // which staffing option is drawn: [scenario index, option index]
 const last = {barrier: "fence", access: "door"};
 let hist = [], hi = -1;
 
@@ -285,9 +292,16 @@ function render() {
     if (p.heading != null) { const a = p.heading * Math.PI / 180, L = 20 * u;
       h += `<line x1="${p.x}" y1="${-p.y}" x2="${p.x + Math.sin(a) * L}" y2="${-(p.y + Math.cos(a) * L)}" stroke="#fff" stroke-width="${2.2 * u}" stroke-linecap="round" pointer-events="none"/>`; }
     h += `<circle data-photo="${p.id}" cx="${p.x}" cy="${-p.y}" r="${5 * u}" fill="#fff" stroke="#111" stroke-width="${1 * u}" style="cursor:zoom-in"><title>${esc(p.name)}</title></circle>`; }
+  const go = guardOption(); let gstops = "";
+  if (go && layers.guards) {
+    if (go.route) { const line = P(go.route.line.concat(go.route.line.slice(0, 1)));
+      h += `<polyline points="${line}" fill="none" stroke="#04263a" stroke-opacity=".75" stroke-width="${6 * u}" stroke-linejoin="round" pointer-events="none"/><polyline points="${line}" fill="none" stroke="#38bdf8" stroke-width="${3 * u}" stroke-linejoin="round" stroke-dasharray="${9 * u} ${6 * u}" pointer-events="none"/>`;
+      for (const st of go.route.stops) gstops += `<g pointer-events="none"><circle cx="${st.x + 13 * u}" cy="${-st.y - 13 * u}" r="${8 * u}" fill="#38bdf8" stroke="#04263a" stroke-width="${1.2 * u}"/><text x="${st.x + 13 * u}" y="${-st.y - 9.7 * u}" font-size="${9 * u}" font-weight="700" text-anchor="middle" fill="#04263a">${st.n}</text></g>`; }
+    for (const p of result.guards.posts) if (go.statics.includes(p.id)) top += tag([p.x, p.y], p.id, "#0284c7", "pill", u, `pointer-events="none"`);
+  }
   if (result && layers.detections) for (const d of result.detections)
     top += tag([d.x, d.y], d.code, "#d946ef", d.status === "confirmed" ? "pill" : "box", u, `data-det="${d.code}" style="cursor:pointer"`);
-  gFeat.innerHTML = h + top;
+  gFeat.innerHTML = h + top + gstops;
 
   // selection handles, draft, flash
   let ui = "";
@@ -407,6 +421,8 @@ function adopt(id) { const list = id === "all" ? result.recommended : result.rec
   for (const p of list) model.features.push({id: uid(), kind: "camera", name: nextName("Planned camera"), pts: [[p.x, p.y]], height: p.height, bearing: p.bearing, hfov: p.hfov, range: p.range, status: "planned", notes: "Recommended position: " + p.mount});
   if (list.length) { toast(list.length + " camera" + (list.length > 1 ? "s" : "") + " added to the plan"); commit(); } }
 
+function guardOption() { const g = result && result.guards; if (!g || !g.scenarios.length) return null;
+  const [a, b] = gsel || [g.scenarios.length - 1, 0]; const sc = g.scenarios[Math.min(a, g.scenarios.length - 1)]; return sc.options[Math.min(b, sc.options.length - 1)]; }
 function renderResults() {
   const el = $("#p-results"), has = k => model.features.some(f => f.kind === k);
   const steps = [["boundary", "Draw the property boundary"], ["building", "Trace each building"], ["barrier", "Add walls, fences and hedges"],
@@ -423,6 +439,15 @@ function renderResults() {
   if (result.recommended.length) { h += `<div class="sec"><span class="label">Recommended cameras</span><button class="btn sm" data-adopt="all">Add all to plan</button></div>`;
     for (const p of result.recommended) h += `<div class="item" data-x="${p.x}" data-y="${p.y}"><span class="badge" style="--c:#10a35a">${p.id}</span><span class="t">${esc(p.mount)}</span>
       <span class="d">Aim ${p.bearing}° ${p.aim} · adds ${p.adds_m2} m²${p.covers.length ? " · covers " + esc(p.covers.join(", ")) : ""}</span><button class="btn sm" data-adopt="${p.id}">Add to plan</button></div>`; }
+  const gp = result.guards;
+  if (gp && gp.scenarios.length) { const cur = guardOption(), li = (xs, c) => xs.map(x => `<li class="${c}">${esc(x)}</li>`).join("");
+    h += `<div class="sec"><span class="label">Guard plan</span></div>`;
+    gp.scenarios.forEach((sc, a) => sc.options.forEach((o, b) => { const rt = o.route;
+      h += `<div class="gopt ${o === cur ? "on" : ""}" data-g="${a},${b}"><div class="t"><span class="badge" style="--c:#0284c7">${sc.guards}</span>${esc(o.title)}${o.recommended ? `<span class="tag good">Recommended</span>` : ""}</div>
+        <div class="d">${o.statics.length ? o.guard_pct + "% always watched" : "No fixed watch"}${rt ? " · " + rt.length_m + " m loop, every " + rt.revisit_min + " min" : ""}</div>
+        ${o === cur ? `<ul class="pc">${li(o.pros, "pro")}${li(o.cons, "con")}</ul>${o.suggestions.map(x => `<div class="a">${esc(x)}</div>`).join("")}` : ""}</div>`; }));
+    h += `<p class="help">Click an option to draw it on the plan. Posts: ${gp.posts.map(p => p.id + " " + esc(p.where)).join("; ") || "none worth holding"}.</p>`; }
+  else if (!model.settings.guards) h += `<p class="help" style="margin-top:14px">Planning guards? Set how many under <b>Site</b> to get posts, a patrol route and options for each headcount.</p>`;
   const all = model.detections || [], gone = all.filter(d => d.status === "dismissed").length;
   if (all.length) { h += `<div class="sec"><span class="label">Detected in the drone photos</span>${gone ? `<button class="btn sm" data-det-act="restore">Restore ${gone} dismissed</button>` : ""}</div>`;
     if (!result.detections.length) h += `<p class="help">All dismissed.</p>`;
@@ -450,6 +475,7 @@ function setDet(code, patch) { for (const d of model.detections || []) if (code 
 $("#p-results").addEventListener("change", ev => { const t = ev.target;
   if (t.dataset.detType != null) setDet(t.dataset.detType, {type: t.value}); else if (t.dataset.detNote != null) setDet(t.dataset.detNote, {note: t.value}); });
 $("#p-results").addEventListener("click", ev => { const b = ev.target.closest("[data-adopt]"); if (b) return adopt(b.dataset.adopt);
+  const go = ev.target.closest("[data-g]"); if (go) { gsel = go.dataset.g.split(",").map(Number); layers.guards = true; const cb = document.querySelector('[data-l="guards"]'); if (cb) cb.checked = true; render(); return renderResults(); }
   const da = ev.target.closest("[data-det-act]");
   if (da) return da.dataset.detAct === "restore" ? setDet("*", {status: "open"}) : setDet(da.dataset.code, {status: da.dataset.detAct});
   if (ev.target.dataset.zoom) return lightbox(ev.target.src, "Detail from the drone photo");
@@ -497,6 +523,9 @@ function renderSettings() {
     <label>Assessor</label><input data-m="assessor" placeholder="Your name" value="${esc(model.assessor || "")}">
     <label>Reference</label><input data-m="reference" placeholder="Job or report number" value="${esc(model.reference || "")}">
     <label class="wide">Notes (shown in the report)</label><textarea data-m="notes">${esc(model.notes || "")}</textarea></div>
+    <div class="sec"><span class="label">Guards</span></div><div class="form">
+    ${n("guards", "Plan for up to", 1, 0, 6)}${n("guard_range_m", "Sight range (m)", 5, 5, 150)}</div>
+    <p class="help" style="margin-top:8px">Set how many officers you might have (0 turns the guard plan off). You get a post-and-patrol option for each headcount up to that number. Updating the plan takes about a second longer while this is on.</p>
     <div class="sec"><span class="label">Cameras to recommend</span></div><div class="form">
     ${n("max_new_cameras", "How many", 1, 0, 12)}${n("camera_hfov", "Lens angle (°)", 5, 10, 360)}${n("camera_range_m", "Useful range (m)", 1, 3, 100)}${n("camera_height_m", "Mount height (m)", .1, .5, 30)}</div>
     <p class="help" style="margin-top:8px">Range is how far away a person is still usefully recorded: roughly 8–10 m to identify a face and 15–25 m to see what someone is doing, for a typical 4 MP wide-angle camera.</p>
@@ -526,7 +555,7 @@ $("#tools").innerHTML = `<div class="label">Draw</div>` + TOOLS.map(t => `<butto
   `<div class="hint">Trace what you see in the aerial image. Heights and types are set under <b>Selected</b>.</div>`;
 $("#tools").addEventListener("click", ev => { const b = ev.target.closest(".tool"); if (b) setTool(b.dataset.t); });
 const LAYERS = [["base", "Base map", "#888"], ["cameras", "Camera coverage (existing + planned)", "rgba(59,130,246,.7)"], ["natural", "Seen from street / windows", "rgba(234,179,8,.7)"],
-  ["blind", "Seen by nobody", "rgba(229,72,77,.75)"], ["proposed", "Recommended cameras", "rgba(16,163,90,.75)"], ["photos", "Survey photos", "#fff"], ["detections", "Detected in photos", "#d946ef"]];
+  ["blind", "Seen by nobody", "rgba(229,72,77,.75)"], ["proposed", "Recommended cameras", "rgba(16,163,90,.75)"], ["photos", "Survey photos", "#fff"], ["detections", "Detected in photos", "#d946ef"], ["guards", "Guard plan", "#38bdf8"]];
 $("#layers").innerHTML = LAYERS.map(l => `<label><input type="checkbox" data-l="${l[0]}" ${layers[l[0]] ? "checked" : ""}><i style="background:${l[2]}"></i>${l[1]}</label>`).join("");
 $("#layers").addEventListener("change", ev => { layers[ev.target.dataset.l] = ev.target.checked; renderBase(); render(); });
 (async () => {

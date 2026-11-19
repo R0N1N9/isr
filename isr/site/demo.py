@@ -280,6 +280,7 @@ def build_demo(out: Path, log=print) -> dict:
     model["client"] = "Example client"
     model["address"] = "1 Example Lane (synthetic demo site)"
     model["reference"] = "DEMO-001"
+    model["settings"]["guards"] = 3
     model["notes"] = ("Synthetic example. The aerial photo and the ground photos are generated, "
                       "and the plan was drawn from known positions.")
     M.normalise(model)

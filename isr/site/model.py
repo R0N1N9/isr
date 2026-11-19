@@ -46,6 +46,9 @@ DEFAULT_SETTINGS = {
     "street_range_m": 50.0,
     "window_range_m": 30.0,
     "min_blind_m2": 6.0,  # smaller unobserved pockets are not listed
+    "guards": 0,  # plan posts and patrols for up to this many officers (0 = no guard plan)
+    "guard_range_m": 40.0,  # how far a standing officer usefully sees
+    "patrol_speed_ms": 1.2,  # walking pace on patrol
 }
 
 BARRIER_TYPES = {
@@ -106,6 +109,9 @@ def normalise(model: dict) -> dict:
     s["camera_hfov"] = min(360.0, max(10.0, s["camera_hfov"]))
     s["camera_range_m"] = min(100.0, max(3.0, s["camera_range_m"]))
     s["max_new_cameras"] = int(min(12, max(0, s["max_new_cameras"])))
+    s["guards"] = int(min(6, max(0, s["guards"])))
+    s["guard_range_m"] = min(150.0, max(5.0, s["guard_range_m"]))
+    s["patrol_speed_ms"] = min(3.0, max(0.3, s["patrol_speed_ms"]))
     model["settings"] = s
 
     feats, used, counters, serial = [], set(), {}, 0

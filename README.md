@@ -474,6 +474,11 @@ The report covers:
   reaches, and its coordinates.
 * **Camera placement**: recommended mounting points on building corners and walls with height, aim
   and what each one covers, chosen to deal with the worst-exposed access points first.
+* **Guard posts and patrols** (when you set a number of guards under **Site**): the best places
+  for an officer to stand, a walking patrol loop round everything those posts cannot see, and a
+  recommended and an alternative deployment for each headcount from one officer up to your number,
+  each with what it gains, what it leaves exposed, and what to do about it. Click an option in the
+  editor to draw it on the plan.
 * **Access points**: for each door, window, gate and driveway: on camera or not, seen from the
   street or not, how much hidden ground surrounds it, and the survey photos that show it.
 * **Seen during the survey**: confirmed people, vehicles and objects, each with a close-up and where
@@ -493,6 +498,10 @@ account: a camera at 2.7 m sees over a 1.2 m garden wall, a passer-by does not s
 * Positions come from consumer GPS and are good to a few metres. The ground is treated as flat.
 * Camera coverage is geometric: an unobstructed view within the stated range and angle. It says
   nothing about image quality, night performance or whether anyone reviews the footage.
+* The guard plan is geometry too: what a standing officer can see at eye height, and walking
+  distance round buildings and through marked gates at 1.2 m/s with 20 s per stop. It knows nothing
+  about shelter, radio cover, breaks, shift patterns or the client's actual threat. Walk a route
+  before adopting it.
 * Lighting, locks, glazing, alarms and upper floors are not assessed. They need a walk-through.
 
 ---

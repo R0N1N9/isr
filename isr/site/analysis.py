@@ -364,6 +364,9 @@ class Analysis:
         }
         self.result["detections"] = self._detections(access)
         self.result["findings"] = self._findings()
+        from .guards import plan as guard_plan
+
+        self.result["guards"] = guard_plan(self)
 
     # -- observers -----------------------------------------------------------
 

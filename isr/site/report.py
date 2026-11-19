@@ -72,6 +72,12 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .acard .t .pill{margin-left:auto}
 .checks{display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:13px;margin:8px 0}
 .checks span:nth-child(odd){color:var(--muted)}
+ul.pc{list-style:none;padding:0;margin:8px 0}
+ul.pc li{padding-left:20px;position:relative;margin:3px 0;font-size:13px}
+ul.pc li::before{position:absolute;left:0;font-weight:700}
+ul.pc li.pro::before{content:"+";color:var(--good)}ul.pc li.con::before{content:"\2212";color:var(--bad)}
+h3.scn{font-size:16px;margin-top:30px}
+.cards.opts{grid-template-columns:repeat(auto-fill,minmax(420px,1fr))}
 .thumbs{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 .thumbs a{display:block;width:96px;height:72px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
 .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
@@ -105,7 +111,7 @@ class MapSVG:
         self.u = max(sc.xmax - sc.xmin, sc.ymax - sc.ymin) / 100.0  # 1% of the map: the unit for strokes and text
 
     def render(self, layers=(), cameras="current", blind=True, photos=False, access=True, title="Site plan",
-               gaps=()) -> str:
+               gaps=(), guards=None) -> str:
         xmin, ymin, xmax, ymax = self.b
         u = self.u
         o = [f'<svg viewBox="{xmin:.2f} {-ymax:.2f} {xmax - xmin:.2f} {ymax - ymin:.2f}" role="img" '
@@ -137,6 +143,22 @@ class MapSVG:
             for p in self.r["recommended"]:
                 o.append(self._camera(p["x"], p["y"], p["bearing"], p["hfov"], p["range"], "#10a35a", p["id"],
                                       dashed=True))
+        stops = []
+        if guards:  # one staffing option: the patrol loop, its stops in order, and the posts
+            rt = guards.get("route")
+            if rt:
+                line = self._pts(rt["line"] + rt["line"][:1])
+                o.append(f'<polyline points="{line}" fill="none" stroke="#04263a" stroke-opacity=".75" stroke-width="{u * 1.1:.2f}" '
+                         f'stroke-linejoin="round"/><polyline points="{line}" fill="none" stroke="#38bdf8" '
+                         f'stroke-width="{u * .55:.2f}" stroke-linejoin="round" stroke-dasharray="{u * 1.4:.2f} {u * .9:.2f}"/>')
+                for st in rt["stops"]:
+                    sx, sy = st["x"] + u * 1.9, -st["y"] - u * 1.9  # beside the door marker, not under it
+                    stops.append(f'<circle cx="{sx:.2f}" cy="{sy:.2f}" r="{u * 1.15:.2f}" fill="#38bdf8" stroke="#04263a" '
+                                 f'stroke-width="{u * .2:.2f}"/><text x="{sx:.2f}" y="{sy + u * .45:.2f}" font-size="{u * 1.25:.2f}" '
+                                 f'font-weight="700" text-anchor="middle" fill="#04263a">{st["n"]}</text>')
+            for p in (self.r.get("guards") or {}).get("posts", []):
+                if p["id"] in guards["statics"]:
+                    o.append(self._label(p["x"], p["y"], p["id"], "#0284c7", shape="cam"))
         for g in gaps:  # openings in the perimeter: red where unmarked, amber where a gate or driveway is marked
             col = "#e08a00" if g["declared"] else "#e5484d"
             o.append(f'<polyline points="{self._pts(g["line"])}" fill="none" stroke="#fff" stroke-width="{u * 1.5:.2f}" '
@@ -154,6 +176,7 @@ class MapSVG:
             for a in self.r["access"]:
                 col = {"high": "#e5484d", "medium": "#e08a00", "low": "#12a150"}[a["priority"]]
                 o.append(self._label(a["x"], a["y"], a["code"], col))
+        o += stops
         o.append(self._furniture())
         o.append("</svg>")
         return "".join(o)
@@ -441,6 +464,54 @@ def build_html(model: dict, an: Analysis) -> str:
                  "".join(rows) + "</table></div>")
     else:
         b.append('<p class="empty-note">No cameras, and nowhere to recommend one until buildings or a boundary are drawn.</p>')
+
+    # guard posts and patrols (only when asked for)
+    gp = r.get("guards")
+    if gp and gp["scenarios"]:
+        asm = gp["assumptions"]
+        ul = lambda items, cls: "".join(f'<li class="{cls}">{h(x)}</li>' for x in items)  # noqa: E731
+        b.append(H("Guard posts and patrols"))
+        b.append(f'<p class="lead">Where officers would do most good, for each number you might have on site. A post is '
+                 f'judged by what a standing officer sees from it (eye height {asm["eye_height_m"]:.1f} m, out to '
+                 f'{asm["range_m"]} m); a patrol by the shortest walking loop round everything the posts cannot see, at '
+                 f'{asm["speed_ms"]:.1f} m/s with {asm["stop_s"]:.0f} s at each stop.</p>')
+        if gp["posts"]:
+            b.append('<h3>Posts</h3><div class="cards">')
+            for p in gp["posts"]:
+                b.append(f'<div class="acard"><div class="t">{_code(p["id"], "#0284c7")}{h(p["where"].capitalize())}</div>'
+                         f'<div class="sub"><span class="mono">{p["lat"]:.6f}, {p["lon"]:.6f}</span></div>'
+                         f'<ul class="pc">{ul(p["pros"], "pro")}{ul(p["cons"], "con")}</ul>'
+                         f'<div><b>Suggestion:</b> {h(p["suggestion"])}</div></div>')
+            b.append("</div>")
+        for sc_ in gp["scenarios"]:
+            n = sc_["guards"]
+            best = sc_["options"][0]
+            b.append(f'<h3 class="scn">With {n} guard{"s" if n != 1 else ""}: {h(best["title"])}</h3>'
+                     f'<p class="lead">{h(sc_["why"])}</p>')
+            b.append(f'<div class="mapcard">{mp.render(layers=("cameras_now",), blind=False, guards=best, title=f"{n} guards")}'
+                     '<div class="legend">' + _sw("#0284c7", "Guard post") + _sw("#38bdf8", "Patrol route and stops, in order", True) +
+                     _sw("rgba(59,130,246,.55)", "Existing camera coverage") + "</div></div>")
+            b.append('<div class="cards opts">')
+            for o in sc_["options"]:
+                rt = o["route"]
+                facts = [f'{o["guard_pct"]}% of grounds always watched' if o["statics"] else "No fixed watch"]
+                if rt:
+                    facts.append(f'{rt["length_m"]} m loop · every {rt["revisit_min"]:g} min')
+                tag = '<span class="pill" style="--c:var(--good)">Recommended</span>' if o["recommended"] else \
+                    '<span class="pill" style="--c:var(--muted)">Alternative</span>'
+                stops = (f'<div class="sub" style="margin-top:6px">Route: {h(" → ".join(st_["name"] for st_ in rt["stops"]))} → back to start</div>'
+                         if rt else "")
+                tips = "".join(f"<div><b>Suggestion:</b> {h(x)}</div>" for x in o["suggestions"])
+                b.append(f'<div class="acard"><div class="t">{h(o["title"].capitalize())}{tag}</div>'
+                         f'<div class="sub">{h(" · ".join(facts))}</div><ul class="pc">{ul(o["pros"], "pro")}{ul(o["cons"], "con")}</ul>'
+                         f'{tips}{stops}</div>')
+            b.append("</div>")
+        if gp["unreachable"]:
+            b.append(f'<p class="sub">Not reachable on foot inside the boundary as drawn, so left off the routes: '
+                     f'{h(", ".join(gp["unreachable"]))}.</p>')
+        b.append('<p class="sub">These are geometric recommendations: what can be seen and how far it is to walk. They do not '
+                 'account for lighting, shelter, radio cover, welfare breaks, shift patterns or the specific threat. '
+                 'Walk the route before adopting it.</p>')
 
     # 6 access points
     b.append(H("Access points"))
