@@ -407,6 +407,97 @@ isr model card best.onnx --tile 640
 After training, confirm the class names line up by running `isr model info best.onnx --photo` on a
 photo with a known target. Fix the order with `--classes` if needed.
 
+### Bootstrap from public datasets
+
+```bash
+isr dataset import ~/datasets/HERIDAL -d sar_dataset --map human=person --gsd-cm 2.0 --scale 0.8
+isr dataset import ~/datasets/SARD --format yolo -d sar_dataset --map person=person
+```
+
+The importer reads Pascal VOC XML (HERIDAL and many SAR sets), YOLO and COCO annotations, and tiles
+them exactly like your own reviews. It renames classes with `--map` and drops the rest. `--scale`
+resizes images first so their ground resolution matches yours: their cm/px divided by yours, so 0.8
+if their photos are slightly sharper than yours. Use `--split val` to make an import your test set,
+and `--gsd-cm` so the colour detectors can be scored with real-world size filtering. Check each
+dataset's licence before commercial use.
+
+### Verifiers: a second opinion on every candidate
+
+A verifier looks at a crop around each candidate and estimates whether it's really the target. It
+**re-ranks candidates and never removes one**: a doubtful crop moves down the list instead of
+disappearing, because in a search a miss costs more than a false alarm.
+
+```bash
+# Option A - zero-shot SigLIP: no training, run once while online (needs `pip install -e ".[train]"`)
+isr verifier build-clip -o verifier/siglip_person.onnx --target person
+
+# Option B - train a small crop classifier on your own reviews (CPU is fine: minutes)
+isr verifier train -d sar_dataset -o verifier/crop_verifier.onnx
+
+# Use either in triage
+isr triage E:\DCIM --verifier verifier/crop_verifier.onnx --open
+```
+
+* **SigLIP** compares each crop with phrases ("an aerial photo of a person lying on the ground" vs
+  "...a rock", "...a log", "...a shadow"). The prompts per target (person / vehicle / animal) are
+  stored in the verifier's card.
+* **Crop classifier** learns from your Confirm/Dismiss decisions what's a person and what's one of
+  your local false alarms. It starts from ImageNet-pretrained MobileNetV3 when it can download
+  them, otherwise a small network trained from scratch.
+
+### Scorecard: measure before you trust
+
+```bash
+isr eval -d sar_dataset --classic --model my_sar_model.onnx --combined \
+         --verifier verifier/crop_verifier.onnx --classes person --open
+```
+
+This runs every system over the dataset's validation tiles and reports:
+
+* **recall:** the share of labelled people found;
+* **false alarms per 20 MP photo:** how much noise a reviewer wades through;
+* **AP** (average precision), and recall for small targets.
+
+`scorecard.html` charts recall against false alarms for the best three systems; `scorecard.json`
+has every number. `--combined` also scores colour detectors + model together. `--verifier` adds a
+"+ verifier" variant of every system, so you can see whether it actually helps.
+
+The colour detectors are scored on the full original photo (as in triage), because their thresholds
+depend on whole-frame statistics; a model is scored tile by tile, as it runs in the field.
+
+**Example run** (synthetic test world, 44 people, unseen during training):
+
+| System | AP | Found at ≤5 false alarms/photo | Most found |
+|---|---|---|---|
+| Colour detectors | 0.57 | 55% | 68% |
+| Colour detectors + crop verifier | 0.63 | 68% | 68% |
+| Stock YOLO (COCO) | 0.06 | 7% | 20% |
+
+The verifier promotes real people above false alarms, but it can't find what the detectors missed
+(here: olive, grey and black clothing). Only a trained detector raises that ceiling. Stock COCO
+models are near useless from the air. These numbers are from synthetic data the verifier was
+trained on a sibling of; expect smaller gains on real imagery, and measure on your own.
+
+![Model scorecard](docs/scorecard.jpg)
+
+### Faster models
+
+```bash
+isr model quantize my_sar_model.onnx --calibration sar_dataset --compare DJI_0412.JPG DJI_0413.JPG
+```
+
+This writes an 8-bit version calibrated on your own tiles, then reports the speed-up and how often
+it agrees with the original. Only the heavy convolution layers are quantised, because quantising a
+detector's output head destroys its class scores. The speed-up depends on the CPU: recent Intel and
+AMD chips with VNNI instructions gain the most, and older ones may gain little. Re-check recall with
+`isr eval` before relying on it.
+
+GPU acceleration is used automatically when the matching ONNX Runtime package is installed:
+
+* `onnxruntime-gpu` for NVIDIA;
+* `onnxruntime-directml` for any GPU on Windows;
+* Apple's Core ML provider on Macs.
+
 **How much data?** A few hundred confirmed people plus a good number of dismissed false alarms
 make a useful start. Results keep improving with every flight you review. Public aerial SAR
 datasets (HERIDAL, SARD, WiSARD) can bootstrap a model before you have your own; check each
@@ -669,7 +760,8 @@ the `.kmz` structure, Studio's ranking of degraded photos, duplicate grouping, h
 that edits keep metadata and never touch the originals, reference-photo matching, and the movement
 model (walking times against Tobler's formula, river barriers and bridges, uphill vs downhill, road
 routing, corridors, probability maps and segment ranking), the ONNX detector on every supported
-output layout, and the review-to-dataset pipeline and its YOLO/COCO exports. The site tests build the demo property
+output layout, the review-to-dataset pipeline and its YOLO/COCO exports, the VOC/YOLO/COCO importers,
+scorecard maths, both verifier types (including training one), and quantisation. The site tests build the demo property
 (`isr/site/demo.py`) and check line-of-sight geometry, base-map placement to within 0.6 m (1 m from
 angled shots alone), that hidden doors rank highest and the recommended cameras cover them, the
 report, and the editor server.

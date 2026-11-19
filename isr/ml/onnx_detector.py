@@ -108,7 +108,8 @@ class OnnxDetector:
         if not self.path.exists():
             raise FileNotFoundError(self.path)
         avail = ort.get_available_providers()
-        prefs = providers or [p for p in ("CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider")
+        prefs = providers or [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider",
+                                            "CPUExecutionProvider")
                               if p in avail]
         so = ort.SessionOptions()
         so.log_severity_level = 3

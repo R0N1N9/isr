@@ -1,4 +1,4 @@
-"""Command line entry point: ``isr triage | plan | track | studio | enhance | site | model | dataset | info``."""
+"""Command line entry point: ``isr triage | plan | track | studio | enhance | site | model | dataset | eval | verifier | info``."""
 
 from __future__ import annotations
 
@@ -84,6 +84,7 @@ def cmd_triage(a) -> int:
         ai_model=a.ai_model,
         ai_conf=a.ai_conf,
         ai_tile=a.ai_tile,
+        verifier=a.verifier,
         work_px=a.work_px,
         min_area_m2=a.min_area,
         max_area_m2=a.max_area,
@@ -459,6 +460,19 @@ def cmd_model(a) -> int:
     from .ml.onnx_detector import ModelCard, OnnxDetector
 
     path = Path(a.model).expanduser()
+    if a.model_cmd == "quantize":
+        from .ml.quantize import compare, quantize_model
+
+        out = Path(a.output).expanduser() if a.output else path.with_suffix(".int8.onnx")
+        quantize_model(path, out, Path(a.calibration).expanduser(), a.samples)
+        print(f"Wrote {out} ({path.stat().st_size / 1e6:.1f} MB -> {out.stat().st_size / 1e6:.1f} MB)")
+        if a.compare:
+            r = compare(path, out, [Path(p) for p in a.compare])
+            print(f"  speed: {r['seconds_a']} s -> {r['seconds_b']} s per photo ({r['speedup']}x); "
+                  f"agreement with the original: {r['agreement']:.0%} of {r['detections_a']} detections"
+                  if r["agreement"] is not None else f"  speed: {r['seconds_a']} s -> {r['seconds_b']} s per photo")
+            print("  Check recall with `isr eval` before using it in a search.")
+        return 0
     if a.model_cmd == "card":
         card = ModelCard.load(path)
         if a.format:
@@ -494,6 +508,18 @@ def cmd_model(a) -> int:
 def cmd_dataset(a) -> int:
     from .ml.dataset import Dataset, add_from_triage, export
 
+    if a.dataset_cmd == "import":
+        from .ml.importers import import_dataset
+
+        cmap = dict(kv.split("=", 1) for kv in a.map.split(",")) if a.map else None
+        st = import_dataset(Path(a.source).expanduser(), Path(a.dataset).expanduser(), a.format, a.name, cmap,
+                            a.keep_unmapped, a.tile, a.scale, a.negatives, limit=a.limit, split_override=a.split,
+                            gsd_cm=a.gsd_cm)
+        print(f"Imported {st['images']} image(s): {st['positive']} positive and {st['negative']} background tile(s), "
+              f"{st['boxes']} box(es)" + (f"; dropped classes {st['dropped_classes']}" if st["dropped_classes"] else ""))
+        d = st["dataset"]
+        print(f"Dataset: {d['tiles']} tiles ({d['train']} train / {d['val']} val); boxes: {d['boxes']}")
+        return 0
     if a.dataset_cmd == "add":
         res = add_from_triage(Path(a.triage).expanduser(), Path(a.labels).expanduser(), Path(a.dataset).expanduser(),
                               tile=a.tile, pad=a.pad, force=a.force)
@@ -512,6 +538,64 @@ def cmd_dataset(a) -> int:
             print(f"  {k:15} {v}")
         if st["tiles"] and st["val"] == 0:
             print("  ! no validation tiles yet: add more flights so some photos land in the validation split")
+    return 0
+
+
+def cmd_eval(a) -> int:
+    from .ml.evaluate import SystemSpec, evaluate, print_table, save
+
+    specs = []
+    if a.classic:
+        specs.append(SystemSpec("colour detectors", classic=True, colors=a.color))
+    for m in a.model:
+        specs.append(SystemSpec(Path(m).stem, model=m, default_threshold=a.threshold))
+    if a.combined and a.model:
+        for m in a.model:
+            specs.append(SystemSpec(f"colour + {Path(m).stem}", classic=True, colors=a.color, model=m))
+    if a.verifier:
+        specs += [SystemSpec(f"{sp.name} + verifier", classic=sp.classic, colors=sp.colors, model=sp.model,
+                             verifier=a.verifier, default_threshold=sp.default_threshold) for sp in list(specs)]
+    if not specs:
+        print("error: nothing to evaluate: add --classic and/or --model MODEL.onnx", file=sys.stderr)
+        return 2
+    res = evaluate(Path(a.dataset).expanduser(), specs, a.split,
+                   [c.strip() for c in a.classes.split(",")] if a.classes else None, a.limit)
+    print()
+    print_table(res)
+    out = Path(a.output).expanduser()
+    page_ = save(res, out)
+    print(f"\nScorecard: {page_}")
+    if a.open:
+        webbrowser.open(page_.resolve().as_uri())
+    return 0
+
+
+def cmd_verifier(a) -> int:
+    if a.verifier_cmd == "build-clip":
+        from .ml.verifier_build import build_clip_verifier
+
+        p = build_clip_verifier(Path(a.output).expanduser(), a.model, None if a.pretrained == "none" else a.pretrained,
+                                a.target)
+        print(f"Wrote {p} (+ .json card, .prompts.npz)")
+    elif a.verifier_cmd == "train":
+        from .ml.verifier_build import train_crop_classifier
+
+        m = train_crop_classifier(Path(a.dataset).expanduser(), Path(a.output).expanduser(), epochs=a.epochs,
+                                  size=a.size, weights=a.weights)
+        print(f"Wrote {a.output}: {m}")
+    else:
+        from .ml.verifier import Verifier
+
+        v = Verifier(Path(a.model).expanduser())
+        for k, val in v.card.__dict__.items():
+            if val not in (None, "", []):
+                print(f"  {k:12} {val}")
+        if a.photo and a.box:
+            from PIL import Image
+
+            box = [float(x) for x in a.box.split(",")]
+            with Image.open(a.photo) as im:
+                print(f"  P({v.label}) for that box: {float(v.score_boxes(im.convert('RGB'), [box])[0]):.3f}")
     return 0
 
 
@@ -563,6 +647,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--ai", action="store_true", help="also run the YOLO person/object detector (needs ultralytics)")
     t.add_argument("--ai-model", default="yolov8n.pt",
                    help="model file: an exported .onnx (runs without PyTorch) or Ultralytics .pt weights")
+    t.add_argument("--verifier", metavar="ONNX",
+                   help="crop verifier (from `isr verifier build-clip` or `isr verifier train`): re-ranks every "
+                        "candidate, never removes one")
     t.add_argument("--ai-tile", type=int, help="ONNX models: tile size in full-resolution pixels (smaller = finds "
                                                "smaller people, slower)")
     t.add_argument("--ai-conf", type=float, default=0.20, help="AI confidence threshold")
@@ -732,8 +819,33 @@ def build_parser() -> argparse.ArgumentParser:
     mc.add_argument("--notes", help="free text: training data, date, scorecard...")
     mc.set_defaults(func=cmd_model, photo=None)
 
-    ds = sub.add_parser("dataset", help="build training data from your triage reviews")
+    mq = mos.add_parser("quantize", help="8-bit version of a model for faster CPU inference")
+    mq.add_argument("model")
+    mq.add_argument("-o", "--output", help="output .onnx (default: MODEL.int8.onnx)")
+    mq.add_argument("--calibration", required=True, help="dataset folder or folder of photos to calibrate on")
+    mq.add_argument("--samples", type=int, default=64, help="calibration images")
+    mq.add_argument("--compare", nargs="*", metavar="PHOTO", help="photos to compare speed/agreement on")
+    mq.set_defaults(func=cmd_model)
+
+    ds = sub.add_parser("dataset", help="build training data from your triage reviews or public datasets")
     dss = ds.add_subparsers(dest="dataset_cmd", required=True)
+    di = dss.add_parser("import", help="tile a public annotated dataset (VOC / YOLO / COCO) into the dataset",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    di.add_argument("source", help="folder of the downloaded dataset (e.g. HERIDAL, SARD)")
+    di.add_argument("-d", "--dataset", default="sar_dataset")
+    di.add_argument("--format", choices=["voc", "yolo", "coco"], help="annotation format (default: auto-detect)")
+    di.add_argument("--name", help="label for this source (default: folder name)")
+    di.add_argument("--map", help="rename classes, e.g. human=person,Human=person (others are dropped)")
+    di.add_argument("--keep-unmapped", action="store_true", help="keep classes not named in --map")
+    di.add_argument("--tile", type=int, default=640)
+    di.add_argument("--scale", type=float, default=1.0,
+                    help="resize images first to match your ground resolution (their cm/px divided by yours)")
+    di.add_argument("--negatives", type=int, default=1, help="background tiles per image")
+    di.add_argument("--limit", type=int, help="only the first N images (quick trial)")
+    di.add_argument("--split", choices=["train", "val"], help="put everything in one split (e.g. val for a test set)")
+    di.add_argument("--gsd-cm", type=float, help="the dataset's ground resolution in cm/px, if known (enables "
+                                                 "physical size filtering when scoring the colour detectors)")
+    di.set_defaults(func=cmd_dataset)
     da = dss.add_parser("add", help="add a reviewed triage run (results + labels.json from the report)",
                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     da.add_argument("triage", help="triage output folder (with results.json)")
@@ -752,6 +864,46 @@ def build_parser() -> argparse.ArgumentParser:
     dst = dss.add_parser("stats", help="summarise the dataset")
     dst.add_argument("-d", "--dataset", default="sar_dataset")
     dst.set_defaults(func=cmd_dataset)
+
+    ev = sub.add_parser("eval", help="scorecard: recall vs false alarms of detectors/verifiers on labelled tiles",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    ev.add_argument("-d", "--dataset", default="sar_dataset")
+    ev.add_argument("--model", action="append", default=[], metavar="ONNX", help="detector to score; repeatable")
+    ev.add_argument("--classic", action="store_true", help="also score the colour/anomaly detectors")
+    ev.add_argument("--combined", action="store_true", help="also score colour detectors + each model together")
+    ev.add_argument("-c", "--color", action="append", default=[], help="target colours for the classic system")
+    ev.add_argument("--verifier", help="also score every system with this verifier added")
+    ev.add_argument("--split", default="val", choices=["val", "train", "any"])
+    ev.add_argument("--classes", help="only these ground-truth classes count as targets, e.g. person")
+    ev.add_argument("--threshold", type=float, default=0.25, help="default operating threshold for models")
+    ev.add_argument("--limit", type=int, help="only the first N tiles")
+    ev.add_argument("-o", "--output", default="scorecard")
+    ev.add_argument("--open", action="store_true")
+    ev.set_defaults(func=cmd_eval)
+
+    vf = sub.add_parser("verifier", help="build or train a crop verifier that re-ranks candidates")
+    vfs = vf.add_subparsers(dest="verifier_cmd", required=True)
+    vb = vfs.add_parser("build-clip", help="zero-shot SigLIP/CLIP verifier (run once while online)",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    vb.add_argument("-o", "--output", default="verifier/siglip_person.onnx")
+    vb.add_argument("--model", default="ViT-B-16-SigLIP", help="OpenCLIP model name")
+    vb.add_argument("--pretrained", default="webli", help="OpenCLIP weights tag ('none' = random, testing only)")
+    vb.add_argument("--target", choices=["person", "vehicle", "animal"], default="person")
+    vb.set_defaults(func=cmd_verifier)
+    vt = vfs.add_parser("train", help="train a small crop classifier on your dataset (CPU is fine)",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    vt.add_argument("-d", "--dataset", default="sar_dataset")
+    vt.add_argument("-o", "--output", default="verifier/crop_verifier.onnx")
+    vt.add_argument("--epochs", type=int, default=15)
+    vt.add_argument("--size", type=int, default=96, help="crop size the classifier sees")
+    vt.add_argument("--weights", choices=["imagenet", "none"], default="imagenet",
+                    help="start from ImageNet weights (downloads once) or from scratch")
+    vt.set_defaults(func=cmd_verifier)
+    vi = vfs.add_parser("info", help="show a verifier's card; optionally score one box")
+    vi.add_argument("model")
+    vi.add_argument("--photo")
+    vi.add_argument("--box", help="x0,y0,x1,y1 in the photo")
+    vi.set_defaults(func=cmd_verifier)
 
     i = sub.add_parser("info", help="show the metadata the tools read from a photo")
     i.add_argument("photos", nargs="+")

@@ -36,6 +36,7 @@ class TriageConfig:
     ai_model: str = "yolov8n.pt"
     ai_conf: float = 0.20
     ai_tile: int | None = None  # ONNX models: full-resolution tile size (default from the model card)
+    verifier: str | None = None  # crop verifier .onnx (re-ranks candidates; never removes them)
     work_px: int = 2000
     min_area_m2: float = 0.04
     max_area_m2: float = 12.0
@@ -216,6 +217,11 @@ def run_triage(source: Path, out_dir: Path, cfg: TriageConfig, log=print) -> dic
         from .reference import AI_CLASSES
         ai_classes = AI_CLASSES[prof.target]
     ai = make_ai_detector(cfg, ai_classes) if cfg.ai else None
+    verifier = None
+    if cfg.verifier:
+        from ..ml.verifier import Verifier
+        verifier = Verifier(cfg.verifier)
+        log(f"Verifier {Path(cfg.verifier).name}: {verifier.card.type}, target '{verifier.label}'")
     if ai is not None and getattr(ai, "format", None):
         log(f"AI model {Path(cfg.ai_model).name}: {ai.format} format, {len(ai.class_names) or '?'} classes, "
             f"{ai.tile} px tiles")
@@ -243,6 +249,14 @@ def run_triage(source: Path, out_dir: Path, cfg: TriageConfig, log=print) -> dic
             dets = [d for d in dets if d.score >= cfg.min_score]
             dets.sort(key=lambda d: -d.score)
             dets = dets[: cfg.max_per_photo]
+            if verifier is not None and dets:
+                # after the cut-offs on purpose: the verifier re-ranks but never removes a candidate
+                from ..ml.verifier import apply_verification
+                with Image.open(path) as vim:
+                    vim = vim.convert("RGB")
+                    for d, p in zip(dets, verifier.score_boxes(vim, [(d.x0, d.y0, d.x1, d.y1) for d in dets])):
+                        apply_verification(d, float(p), verifier.label)
+                dets.sort(key=lambda d: -d.score)
             pr = _photo_result(path, source, meta, dets, cfg, err)
             results.append(pr)
             stem = f"{n:05d}_{path.stem}"

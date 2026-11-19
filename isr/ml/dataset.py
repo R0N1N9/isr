@@ -160,7 +160,10 @@ def add_from_triage(triage_dir: Path, labels_path: Path, dataset_dir: Path, tile
                 s = Sample(file=name, split=split, width=T, height=T, boxes=boxes,
                            kind="positive" if boxes else "negative", key=key,
                            source={"run": run, "photo": photo["rel"], "candidate": d["id"], "label": kind,
-                                   "tile_xy": [tx, ty], "lat": d.get("lat"), "lon": d.get("lon")})
+                                   "tile_xy": [tx, ty], "lat": d.get("lat"), "lon": d.get("lon"),
+                                   "cand_box": [round(x0 - tx, 1), round(y0 - ty, 1), round(x1 - tx, 1),
+                                                round(y1 - ty, 1)],
+                                   "gsd_cm": photo.get("gsd_cm"), "photo_abs": str(src.resolve())})
                 ds.samples.append(s)
                 ds.keys.add(key)
                 added["positive" if boxes else "negative"] += 1

@@ -15,3 +15,5 @@ site_*/
 runs/
 sar_dataset/
 *.onnx
+verifier/
+scorecard/
